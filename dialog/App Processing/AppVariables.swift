@@ -9,7 +9,7 @@ import Foundation
 import SwiftUI
 
 struct AppDefaults {
-    let cliversion                      = "2.6.0"
+    let cliversion                      = "3.0.1"
     let launchTime                      = Date.now
     // message default strings
     let titleDefault                    = String("default-title".localized)
