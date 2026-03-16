@@ -55,6 +55,7 @@ struct ButtonBarView: View {
                         NewButton(label: observedData.args.buttonInfoTextOption.value == "nil" ? "" : observedData.args.buttonInfoTextOption.value,
                                     symbolName: observedData.args.buttonInfoSymbol.value,
                                     symbolIsVisible: observedData.args.buttonInfoSymbol.present,
+                                    keyboardShortcut: .init(.end),
                                     buttonFontSize: observedData.appProperties.buttonTextSize,
                                     buttonStyle: observedData.appProperties.buttonSize,
                                     action: observedData.args.buttonInfoActionOption.value,
