@@ -60,11 +60,14 @@ struct DialogLauncher: ParsableCommand {
         //fputs("my pid \(myPid)\n", stderr)
 
         // --- Notification routing ---
-        // When --notification is present, delegate to the appropriate helper bundle
-        // embedded inside Dialog.app/Contents/Helpers/. The --style argument selects
-        // banner (default) or alert delivery style.
-        if argPresent("--notification", in: passthroughArgs) {
-            let style = argValue("--style", in: passthroughArgs)?.lowercased() ?? "banner"
+        // When --notification AND --style are both present, delegate to the appropriate
+        // helper bundle embedded inside Dialog.app/Contents/Helpers/.
+        // If --style is absent, fall through to the main Dialog binary which handles
+        // notifications via the main app bundle ID (legacy path, preserved for backwards
+        // compatibility with existing MDM notification-settings profiles).
+        let notificationStyle = argValue("--style", in: passthroughArgs)?.lowercased()
+        if argPresent("--notification", in: passthroughArgs) && notificationStyle != nil {
+            let style = notificationStyle!
             let helperName: String
             switch style {
             case "alert":
@@ -285,13 +288,12 @@ struct DialogLauncher: ParsableCommand {
         var stdout: String = ""
         var stderrOutput: String = ""
 
-        // Set up a handler to stream stderr in real-time
+        // Collect stderr output for the return value; callers are responsible for forwarding it.
         let stderrHandle = stderrPipe.fileHandleForReading
         stderrHandle.readabilityHandler = { handle in
             let data = handle.availableData
             if let line = String(data: data, encoding: .utf8), !line.isEmpty {
                 stderrOutput += line
-                fputs(line, stderr)
             }
         }
 

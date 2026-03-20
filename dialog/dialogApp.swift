@@ -7,17 +7,39 @@
 
 import SwiftUI
 import Combine
+import UserNotifications
 
 import SystemConfiguration
 
 var background = BlurWindowController()
 
 // AppDelegate for window and lifecycle management
-class AppDelegate: NSObject, NSApplicationDelegate {
+class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate {
 
     var monitor: PIDMonitor?
 
     func applicationWillFinishLaunching(_ notification: Notification) {
+        UNUserNotificationCenter.current().delegate = self
+    }
+
+    // MARK: - UNUserNotificationCenterDelegate (legacy path)
+    // Notifications sent via the main app bundle (without --style) are handled here.
+    // This path is deprecated and will be removed in a future major version.
+
+    func userNotificationCenter(_ center: UNUserNotificationCenter,
+                                didReceive response: UNNotificationResponse,
+                                withCompletionHandler completionHandler: @escaping () -> Void) {
+        writeLog("reading notification response", logLevel: .debug)
+        if response.notification.request.content.categoryIdentifier == "SD_NOTIFICATION" {
+            appvars.isProcessingNotification = true
+            processNotification(response: response)
+        } else {
+            writeLog("unknown notification type", logLevel: .debug)
+        }
+        completionHandler()
+        if appvars.isProcessingNotification {
+            quitDialog(exitCode: 0)
+        }
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -153,7 +175,24 @@ struct dialogApp: App {
         // get all the command line option values
         processCLOptionValues()
 
+        // Legacy notification path: --notification without --style routes through the main app bundle.
+        // This preserves compatibility with existing MDM notification-settings profiles.
+        // Deprecated: use --style banner or --style alert with dialogcli for new deployments.
+        if !(appArguments.setAppIcon.present ||
+             appArguments.getVersion.present ||
+             appArguments.buyCoffee.present ||
+             appArguments.helpOption.present ||
+             appArguments.licence.present) {
+            checkNotificationAuthorisation(notificationPresent: appArguments.notification.present)
+        }
+
         captureQuitKey(keyValue: appArguments.quitKey.value)
+
+        // Check if we are sending a notification via the legacy path (no --style argument).
+        if checkForDialogNotificationMode(appArguments) {
+            writeLog("Notification sent via legacy path (main app bundle)")
+            quitDialog(exitCode: 0)
+        }
 
         // check for jamfhelper mode
         if appArguments.jamfHelperMode.present {
@@ -218,7 +257,7 @@ struct dialogApp: App {
     var body: some Scene {
         
         WindowGroup {
-            if !appvars.noargs {
+            if !appArguments.notification.present && !appvars.noargs {
                 let _ = appvars.debugMode ? print("DEBUG: Checking modes - mini:\(appArguments.miniMode.present) inspect:\(appArguments.inspectMode.present) presentation:\(appArguments.presentationMode.present)") : ()
                 ZStack {
                     if appArguments.miniMode.present {
