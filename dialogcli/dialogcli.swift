@@ -68,9 +68,9 @@ struct DialogLauncher: ParsableCommand {
             let helperName: String
             switch style {
             case "alert":
-                helperName = "DialogNotifier-Alert"
+                helperName = "Dialog Alert"
             default:
-                helperName = "DialogNotifier-Banner"
+                helperName = "Dialog Banner"
             }
 
             // Remove --style and its value from args before forwarding — the helper
