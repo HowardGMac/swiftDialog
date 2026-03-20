@@ -18,16 +18,47 @@ class NotifierAppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCe
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        // Request authorisation (non-blocking; completion fires asynchronously)
-        requestNotificationAuthorisation()
+        let capturedArgs = args
+        Task {
+            await runNotifierFlow(args: capturedArgs)
+        }
+    }
+
+    // Main async flow — awaiting authorisation keeps the app alive
+    // for exactly as long as the permission prompt is visible.
+    private func runNotifierFlow(args: NotifierArguments) async {
+        let center = UNUserNotificationCenter.current()
+
+        // Check current status first so we only prompt when genuinely undetermined.
+        let settings = await center.notificationSettings()
+
+        if settings.authorizationStatus == .notDetermined {
+            writeLog("Requesting notification authorisation", logLevel: .debug)
+            do {
+                // This await returns only after the user taps Allow or Don't Allow,
+                // so the app stays alive for the duration of the permission prompt.
+                let granted = try await center.requestAuthorization(options: [.alert, .badge, .sound])
+                writeLog("Notification authorisation \(granted ? "granted" : "denied")", logLevel: .debug)
+                if !granted {
+                    await MainActor.run { NSApp.terminate(nil) }
+                    return
+                }
+            } catch {
+                writeLog(error.localizedDescription, logLevel: .error)
+                await MainActor.run { NSApp.terminate(nil) }
+                return
+            }
+        } else if settings.authorizationStatus == .denied {
+            writeLog("Notifications are denied — nothing to send", logLevel: .error)
+            await MainActor.run { NSApp.terminate(nil) }
+            return
+        }
 
         if args.removeNotification {
             writeLog("Removing notification(s)")
             removeNotification(identifier: args.identifier.isEmpty ? nil : args.identifier)
-            // Small delay to let the removal propagate before quitting
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                NSApp.terminate(nil)
-            }
+            try? await Task.sleep(for: .milliseconds(500))
+            await MainActor.run { NSApp.terminate(nil) }
             return
         }
 
@@ -45,11 +76,10 @@ class NotifierAppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCe
             soundEnabled: args.soundEnabled
         )
 
-        // Allow time for the notification to be delivered before quitting.
-        // The system delivers it asynchronously; 0.5 s is sufficient in practice.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-            NSApp.terminate(nil)
-        }
+        // Small delay to ensure the notification request has been handed off
+        // to the system before we exit.
+        try? await Task.sleep(for: .milliseconds(500))
+        await MainActor.run { NSApp.terminate(nil) }
     }
 
     // MARK: - UNUserNotificationCenterDelegate

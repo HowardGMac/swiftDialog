@@ -9,15 +9,6 @@ import Foundation
 import UserNotifications
 import AppKit
 
-func requestNotificationAuthorisation() {
-    writeLog("Requesting notification authorisation", logLevel: .debug)
-    UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .badge, .sound]) { _, error in
-        if let error {
-            writeLog(error.localizedDescription, logLevel: .error)
-        }
-    }
-}
-
 func removeNotification(identifier: String? = nil) {
     let center = UNUserNotificationCenter.current()
     if let id = identifier, !id.isEmpty {
