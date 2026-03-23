@@ -17,7 +17,8 @@ var background = BlurWindowController()
 class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate {
 
     var monitor: PIDMonitor?
-    
+    var windowDragManager: WindowDragManager?
+
     func userNotificationCenter(_ center: UNUserNotificationCenter,
                 didReceive response: UNNotificationResponse,
                 withCompletionHandler completionHandler:
@@ -65,6 +66,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
             window.title = appArguments.titleOption.value
             window.isMovable = appArguments.movableWindow.present
             window.isMovableByWindowBackground = true
+            if appArguments.movableWindow.present {
+                windowDragManager = WindowDragManager(window: window)
+            }
             if appArguments.showOnAllScreens.present {
                 window.collectionBehavior = [.canJoinAllSpaces]
             }
@@ -81,10 +85,13 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
                 writeLog("CGSession found. Continuing", logLevel: .debug)
             }
 
-            // Set window level
-            if appArguments.forceOnTop.present || appArguments.blurScreen.present {
+            // Set initial window level
+            if appArguments.forceOnTop.present {
+                window.level = .floating  // Start with floating, will be elevated after positioning
+                writeLog("Window initially set to floating level for force on top", logLevel: .debug)
+            } else if appArguments.blurScreen.present {
                 window.level = .floating
-                writeLog("Window is forced on top", logLevel: .debug)
+                writeLog("Window set to floating level for blur screen", logLevel: .debug)
             } else {
                 window.level = .normal
             }
@@ -93,26 +100,23 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
             if appArguments.blurScreen.present && !appArguments.fullScreenWindow.present {
                 writeLog("Blurscreen enabled", logLevel: .debug)
                 blurredScreen.show()
-                //window.level = NSWindow.Level(rawValue: Int(CGWindowLevelForKey(.maximumWindow) + 1))
-            } else if appArguments.forceOnTop.present {
-                window.level = NSWindow.Level(rawValue: Int(CGWindowLevelForKey(.maximumWindow) + 1))
             } else {
                 background.close()
             }
-            
+
             placeWindow(window, size: CGSize(width: appvars.windowWidth,
                                              height: appvars.windowHeight),
                         vertical: appvars.windowPositionVertical,
                         horozontal: appvars.windowPositionHorozontal,
                         offset: appvars.windowPositionOffset,
                         useFullScreen: appArguments.blurScreen.present || appArguments.forceOnTop.present)
-            
+
             // order to the front
             window.makeKeyAndOrderFront(self)
-            
+
             // show Dock icon
             NSApp.setActivationPolicy((appArguments.showDockIcon.present || appArguments.dockIcon.present) ? .regular : .accessory)
-            
+
             // Set Dock Icon
             if appArguments.dockIcon.present {
                 let path = appArguments.dockIcon.value
@@ -125,14 +129,32 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
                 }
                 NSApp.applicationIconImage = image
             }
-            
+
             // Set Dock Badge
             NSApp.dockTile.badgeLabel = appArguments.dockBadge.present ? appArguments.dockBadge.value : nil
-            
+
             // Hide menu items (only visible if dock icon is visible)
             DispatchQueue.main.async {
                 NSApp.mainMenu?.items.removeAll { item in
                     ["File", "View", "Window", "Help"].contains(item.title)
+                }
+            }
+
+            // Force on top configuration - apply after window is positioned and visible
+            if appArguments.forceOnTop.present {
+                DispatchQueue.main.async {
+                    // Set the highest possible window level
+                    let maxLevel = NSWindow.Level(rawValue: Int(CGWindowLevelForKey(.maximumWindow) + 1))
+                    window.level = maxLevel
+
+                    // Ensure window collection behavior allows it to appear on all spaces
+                    window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+
+                    // Force the window to order front again with new level
+                    window.orderFront(nil)
+
+                    writeLog("Window level elevated to maximum: \(maxLevel.rawValue)", logLevel: .debug)
+                    writeLog("Window collection behavior set for force on top", logLevel: .debug)
                 }
             }
 
@@ -247,17 +269,17 @@ struct dialogApp: App {
             activateDialog()
             writeLog("Activated", logLevel: .debug)
         }
-        
+
         // If an audio file is passed in, play it
         if appArguments.playSound.present {
             AudioManager.shared.playAudio(from: appArguments.playSound.value)
         }
-        
+
         hideAllApps(appArguments.hideOtherApps.present)
     }
 
     var body: some Scene {
-        
+
         WindowGroup {
             if !appArguments.notification.present && !appvars.noargs {
                 let _ = appvars.debugMode ? print("DEBUG: Checking modes - mini:\(appArguments.miniMode.present) inspect:\(appArguments.inspectMode.present) presentation:\(appArguments.presentationMode.present)") : ()
@@ -314,7 +336,7 @@ struct dialogApp: App {
                             appArguments.movableWindow.present = true
                         }
                     }
-                    
+
                 }
                 .onDisappear {
                     quitDialog(exitCode: appDefaults.exit15.code)
@@ -348,13 +370,13 @@ struct dialogApp: App {
             CommandGroup(replacing: .textFormatting) { } // Text formatting
              */
         }
-        
+
         WindowGroup("Constriction Kt", id: "ConstructionKit") {
             ConstructionKitView(observedDialogContent: observedData)
         }
         .windowResizability(.contentSize)
     }
-    
+
     func showAboutWindow() {
             let aboutView = NSHostingController(rootView: AboutView())
             let window = NSWindow(contentViewController: aboutView)
