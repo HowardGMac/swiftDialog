@@ -31,6 +31,11 @@ func checkNotificationAuthorisation(notificationPresent: Bool) {
 func checkForDialogNotificationMode(_ arguments: CommandLineArguments) -> Bool {
     // check if we are sending a notification
     if arguments.notification.present && dialogIsAuthorised {
+        // Deprecation notice: sending notifications via the main Dialog app bundle is deprecated.
+        // Admins should migrate to using `--style banner` or `--style alert` via dialogcli,
+        // which routes to dedicated helper apps with separate bundle IDs.
+        // This legacy path will be removed in a future major version.
+        fputs("WARNING: Sending notifications via Dialog.app is deprecated. Use --style banner or --style alert for new deployments.\n", stderr)
         if arguments.removeNotification.present {
             writeLog("Removing notifications")
             removeNotification(identifier: arguments.notificationIdentifier.value)
