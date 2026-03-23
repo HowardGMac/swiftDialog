@@ -58,7 +58,7 @@ class FileReader {
         }
         fileHandle?.waitForDataInBackgroundAndNotify()
 
-        dataAvailable = NotificationCenter.default.addObserver(forName: NSNotification.Name.NSFileHandleDataAvailable, object: self.fileHandle, queue: nil) { _ in
+        dataAvailable = NotificationCenter.default.addObserver(forName: NSNotification.Name.NSFileHandleDataAvailable, object: self.fileHandle, queue: .main) { _ in
             if let data = self.fileHandle?.availableData,
                data.count > 0 {
                 self.parseAndPrint(data: data)
@@ -701,6 +701,9 @@ final class DialogUpdatableContent: ObservableObject {
 
     @Published var updateView: Bool = true
     @Published var constructionKitShown: Bool = false
+    
+    /// Current card index for cards mode - used to force view recreation
+    @Published var currentCardIndex: Int = 0
 
     var status: StatusState
 
@@ -802,5 +805,238 @@ final class DialogUpdatableContent: ObservableObject {
                 writeLog("\(error)", logLevel: .debug)
             }
         }
+    }
+    
+    // MARK: - Cards Mode Support
+    
+    /// Collect current user input from all input fields
+    /// Returns a dictionary of field names to their values
+    func collectCurrentUserInput() -> [String: Any] {
+        var input: [String: Any] = [:]
+        
+        // Collect text field values
+        for textField in userInputState.textFields {
+            let key = textField.name.isEmpty ? textField.title : textField.name
+            input[key] = textField.value
+        }
+        
+        // Collect dropdown selections
+        for dropdown in userInputState.dropdownItems {
+            let key = dropdown.name.isEmpty ? dropdown.title : dropdown.name
+            input[key] = [
+                "selectedValue": dropdown.selectedValue,
+                "selectedIndex": dropdown.values.firstIndex(of: dropdown.selectedValue) ?? -1
+            ]
+        }
+        
+        // Collect checkbox values
+        for checkbox in userInputState.checkBoxes {
+            let key = checkbox.name.isEmpty ? checkbox.label : checkbox.name
+            input[key] = checkbox.checked
+        }
+        
+        // Collect list selections if enabled
+        if args.listSelectionEnabled.present {
+            for item in userInputState.listItems {
+                input[item.title] = item.selected
+            }
+        }
+        
+        return input
+    }
+    
+    /// Clear user input state for a fresh card
+    func clearUserInputState() {
+        userInputState.textFields.removeAll()
+        userInputState.dropdownItems.removeAll()
+        userInputState.checkBoxes.removeAll()
+        userInputState.listItems.removeAll()
+        
+        // Update observed arrays and state
+        textFieldArray = []
+        dropdownArray = []
+        listItemsArray = []
+        observedUserInputState = userInputState
+    }
+    
+    /// Apply a card's configuration to the current dialog state
+    /// - Parameter card: The card configuration to apply
+    func applyCardConfiguration(_ card: DialogCard) {
+        writeLog("Applying card \(card.id) configuration")
+        
+        // Update current card index FIRST and force UI update
+        // This triggers view recreation via .id() modifier BEFORE data changes
+        // Critical: this must happen before clearing/updating userInputState to avoid index out of range
+        currentCardIndex = cardState.currentCardIndex
+        objectWillChange.send()
+        
+        // Clear previous user input state
+        clearUserInputState()
+        
+        // Reset appArguments to defaults first
+        // This ensures properties not specified in the card revert to defaults
+        appArguments.resetToDefaults()
+        
+        // Reset appvars window dimensions to defaults
+        // processCLOptions only updates these if the arguments are present,
+        // so we need to reset them before processing the new card config
+        appvars.windowWidth = 820  // Default from AppVariables
+        appvars.windowHeight = 380 // Default from AppVariables
+        
+        // Get the merged configuration (global defaults + card overrides)
+        let mergedConfig = cardState.getMergedConfiguration(for: card)
+        
+        // Get card input variables for substitution in text fields
+        // This allows using {fieldname} syntax to reference values from previous cards
+        let cardInputVariables = cardState.getInputAsVariables()
+        
+        // Merge card input variables with system info for text processing
+        var combinedTags = appvars.systemInfo
+        for (key, value) in cardInputVariables {
+            combinedTags[key] = value
+        }
+        
+        // Update appArguments with the merged configuration (global + card)
+        appArguments.updateAllItems(with: mergedConfig)
+        
+        // Re-process options that need special handling (uses merged config)
+        // This must happen BEFORE variable substitution as it sets up dropdowns, checkboxes, etc.
+        processCLOptions(json: mergedConfig)
+        
+        // Apply variable substitution to text fields that support it
+        // Title, subtitle, message, etc. can use {fieldname} from previous cards
+        if !cardInputVariables.isEmpty {
+            appArguments.titleOption.value = processTextString(appArguments.titleOption.value, tags: combinedTags)
+            appArguments.subTitleOption.value = processTextString(appArguments.subTitleOption.value, tags: combinedTags)
+            appArguments.messageOption.value = processTextString(appArguments.messageOption.value, tags: combinedTags)
+            appArguments.button1TextOption.value = processTextString(appArguments.button1TextOption.value, tags: combinedTags)
+            appArguments.button2TextOption.value = processTextString(appArguments.button2TextOption.value, tags: combinedTags)
+            appArguments.infoBox.value = processTextString(appArguments.infoBox.value, tags: combinedTags)
+            appArguments.helpMessage.value = processTextString(appArguments.helpMessage.value, tags: combinedTags)
+        }
+        
+        // Refresh our local args reference AFTER processCLOptions
+        // This ensures dropdownValues.present, checkbox.present etc. are correctly set
+        args = appArguments
+        
+        // Update progress bar settings if present in card config
+        if args.progressBar.present {
+            progressTotal = Double(args.progressBar.value) ?? 100
+            // Start with indeterminate progress (nil) - value is set via command file
+            // The "progress" JSON key sets the total, not the current value
+            progressValue = nil
+            writeLog("Card progress bar: total=\(progressTotal), starting indeterminate")
+        }
+        
+        // Sync window properties from appvars (updated by processCLOptions)
+        // This allows cards to specify different window sizes
+        let windowSizeChanged = appProperties.windowWidth != appvars.windowWidth || 
+                                appProperties.windowHeight != appvars.windowHeight
+        appProperties.windowWidth = appvars.windowWidth
+        appProperties.windowHeight = appvars.windowHeight
+        
+        // Resize window if dimensions changed
+        if windowSizeChanged, let window = mainWindow ?? NSApp.windows.first {
+            writeLog("Card resizing window to \(appvars.windowWidth) x \(appvars.windowHeight)")
+            placeWindow(window, 
+                       size: CGSize(width: appProperties.windowWidth, height: appProperties.windowHeight + 28),
+                       vertical: appProperties.windowPositionVertical,
+                       horozontal: appProperties.windowPositionHorozontal,
+                       offset: args.positionOffset.value.floatValue(),
+                       useFullScreen: args.blurScreen.present || args.forceOnTop.present)
+        }
+        
+        // Check if we have stored input for this card (user navigated back)
+        // and restore the values
+        if let storedInput = cardState.getStoredInput(for: cardState.currentCardIndex) {
+            restoreUserInput(from: storedInput)
+        }
+        
+        // Update the observed arrays and state from the global state
+        textFieldArray = userInputState.textFields
+        dropdownArray = userInputState.dropdownItems
+        listItemsArray = userInputState.listItems
+        observedUserInputState = userInputState
+        
+        // Force final UI update
+        objectWillChange.send()
+    }
+    
+    /// Restore user input values from stored data (when navigating back)
+    /// - Parameter storedInput: Dictionary of field names to their stored values
+    private func restoreUserInput(from storedInput: [String: Any]) {
+        writeLog("Restoring user input for card \(cardState.currentCardIndex + 1)")
+        
+        // Restore text field values
+        for index in 0..<userInputState.textFields.count {
+            let key = userInputState.textFields[index].name.isEmpty 
+                ? userInputState.textFields[index].title 
+                : userInputState.textFields[index].name
+            if let value = storedInput[key] as? String {
+                userInputState.textFields[index].value = value
+            }
+        }
+        
+        // Restore dropdown selections
+        for index in 0..<userInputState.dropdownItems.count {
+            let key = userInputState.dropdownItems[index].name.isEmpty 
+                ? userInputState.dropdownItems[index].title 
+                : userInputState.dropdownItems[index].name
+            if let dictValue = storedInput[key] as? [String: Any],
+               let selectedValue = dictValue["selectedValue"] as? String {
+                userInputState.dropdownItems[index].selectedValue = selectedValue
+            }
+        }
+        
+        // Restore checkbox values
+        for index in 0..<userInputState.checkBoxes.count {
+            let key = userInputState.checkBoxes[index].name.isEmpty 
+                ? userInputState.checkBoxes[index].label 
+                : userInputState.checkBoxes[index].name
+            if let checked = storedInput[key] as? Bool {
+                userInputState.checkBoxes[index].checked = checked
+            }
+        }
+        
+        // Restore list selections
+        for index in 0..<userInputState.listItems.count {
+            if let selected = storedInput[userInputState.listItems[index].title] as? Bool {
+                userInputState.listItems[index].selected = selected
+            }
+        }
+    }
+    
+    /// Advance to the next card
+    /// - Returns: True if advanced, false if on last card (should exit)
+    func advanceToNextCard() -> Bool {
+        // Store current input before advancing
+        cardState.storeCurrentCardInput(collectCurrentUserInput())
+        
+        // Try to advance
+        if cardState.nextCard() {
+            if let nextCard = cardState.currentCard {
+                applyCardConfiguration(nextCard)
+                return true
+            }
+        }
+        
+        return false
+    }
+    
+    /// Go back to the previous card
+    /// - Returns: True if moved back, false if on first card
+    func goToPreviousCard() -> Bool {
+        // Store current input before going back
+        cardState.storeCurrentCardInput(collectCurrentUserInput())
+        
+        // Try to go back
+        if cardState.previousCard() {
+            if let prevCard = cardState.currentCard {
+                applyCardConfiguration(prevCard)
+                return true
+            }
+        }
+        
+        return false
     }
 }
