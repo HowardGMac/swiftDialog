@@ -548,16 +548,19 @@ class FileReader {
                 activateDialog()
 
             // minimize
-            case "miniaturize:":
+            case "minimize:", "minimise:":
                 writeToLog("minimizing windows")
                 if observedData.args.blurScreen.present {
                     blurredScreen.hide()
                 }
-                NSApp.keyWindow?.setIsMiniaturized(true)
+                activateDialog()
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                    NSApp.keyWindow?.setIsMiniaturized(true)
+                }
 
-            // deminimize
-            case "deminiaturize:":
-                writeToLog("deminimizing windows")
+            // maximize
+            case "maximize:", "maximise:":
+                writeToLog("maximizing windows")
                 if observedData.args.blurScreen.present {
                     blurredScreen.show()
                 }
