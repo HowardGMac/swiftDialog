@@ -19,6 +19,7 @@ struct CommandlineArgument {
     var present: Bool = false
     var isbool: Bool = false
     var overrideDefaultIfNill = false
+    var hidden: Bool = false
 }
 
 struct CommandLineArguments {
@@ -45,7 +46,7 @@ struct CommandLineArguments {
     var bannerHeight             = CommandlineArgument(long: "bannerheight")
     var button1TextOption        = CommandlineArgument(long: "button1text", defaultValue: appDefaults.button1Default, overrideDefaultIfNill: true)
     var button1ActionOption      = CommandlineArgument(long: "button1action")
-    var button1ShellActionOption = CommandlineArgument(long: "button1shellaction",short: "")
+    var button1ShellActionOption = CommandlineArgument(long: "button1shellaction",short: "", hidden: true)
     var button1Symbol            = CommandlineArgument(long: "button1symbol")
     var button2TextOption        = CommandlineArgument(long: "button2text", defaultValue: appDefaults.button2Default)
     var button2ActionOption      = CommandlineArgument(long: "button2action")
@@ -102,7 +103,7 @@ struct CommandLineArguments {
     var preferredAppearance      = CommandlineArgument(long: "appearance")
     var setAppIcon               = CommandlineArgument(long: "seticon")
     var notificationIdentifier   = CommandlineArgument(long: "identifier", short: "id")
-    var callingPid               = CommandlineArgument(long: "pid", defaultValue: 0)
+    var callingPid               = CommandlineArgument(long: "pid", defaultValue: 0, hidden: true)
     var playSound                = CommandlineArgument(long: "sound")
     var dockIcon                 = CommandlineArgument(long: "dockicon")
     var dockBadge                = CommandlineArgument(long: "dockiconbadge")
@@ -116,10 +117,10 @@ struct CommandLineArguments {
     var getVersion               = CommandlineArgument(long: "version", short: "v", isbool: true)
     var hideIcon                 = CommandlineArgument(long: "hideicon", short: "h", isbool: true)
     var centreIcon               = CommandlineArgument(long: "centreicon", isbool: true)
-    var centreIconSE             = CommandlineArgument(long: "centericon", isbool: true) // the other way of spelling
+    var centreIconSE             = CommandlineArgument(long: "centericon", isbool: true, hidden: true) // the other way of spelling
     var helpOption               = CommandlineArgument(long: "help", isbool: true)
     var demoOption               = CommandlineArgument(long: "demo", isbool: true)
-    var buyCoffee                = CommandlineArgument(long: "coffee", short: "☕️", isbool: true)
+    var buyCoffee                = CommandlineArgument(long: "coffee", short: "☕️", isbool: true, hidden: true)
     var licence                  = CommandlineArgument(long: "licence", short: "l", isbool: true)
     var warningIcon              = CommandlineArgument(long: "warningicon", isbool: true) // Deprecated
     var infoIcon                 = CommandlineArgument(long: "infoicon", isbool: true) // Deprecated
