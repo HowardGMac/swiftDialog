@@ -50,7 +50,15 @@ struct WatermarkView: View {
         GeometryReader { window in
             ZStack {
                 if observedData.args.watermarkImage.value.range(of: "colo[u]?r=", options: .regularExpression) != nil {
-                    SolidColourView(colourValue: observedData.args.watermarkImage.value)
+                    SolidColourView(colourValue: observedData.args.watermarkImage.value.split(usingRegex: ",").first ?? "accent",
+                                    withGradient: observedData.args.watermarkImage.value.split(usingRegex: ",").last != "nogradient"
+                                    )
+                } else if observedData.args.watermarkImage.value.range(of: "gradient=", options: .regularExpression) != nil {
+                    if let colourValues = observedData.args.watermarkImage.value.split(usingRegex: "gradient=").last {
+                        // angle degrees is the last element if it contains the text angle=, otherwise it's 90
+                        GradientColourView(colourValues: colourValues.split(usingRegex: ":").first ?? "accent",
+                                           angleDegrees: Double(colourValues.split(usingRegex: ":").last?.split(usingRegex: "angle=").last ?? "90") ?? 90 )
+                    }
                 } else if observedData.args.watermarkFill.value == "fill" {
                     DisplayImage(observedData.args.watermarkImage.value, corners: false, rezize: true, content: .fill)
                         .scaledToFill()

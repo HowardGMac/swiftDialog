@@ -18,11 +18,9 @@ struct BannerImageView: View {
     var maxBannerHeight: CGFloat = 130
     var minBannerHeight: CGFloat = 100
 
-    let blurRadius: CGFloat = 3
-    let opacity: CGFloat = 0.5
-    let blurOffset: CGFloat = 2
-
-    //let size: CGFloat
+    let blurRadius: CGFloat = 5
+    let opacity: CGFloat = 1 //0.8
+    let blurOffset: CGFloat = 3
 
     init(observedDialogContent: DialogUpdatableContent) {
         self.observedData = observedDialogContent
@@ -37,9 +35,19 @@ struct BannerImageView: View {
     var body: some View {
         ZStack {
             if observedData.args.bannerImage.value.range(of: "colo[u]?r=", options: .regularExpression) != nil {
-                SolidColourView(colourValue: observedData.args.bannerImage.value)
+                if let colourValue = observedData.args.bannerImage.value.split(usingRegex: "colo[u]?r=").last {
+                    SolidColourView(colourValue: colourValue.split(usingRegex: ",").first ?? "accent",
+                                    withGradient: colourValue.split(usingRegex: ",").last != "nogradient"
+                    )
                     .frame(maxHeight: maxBannerHeight)
-                    //.frame(minHeight: 100)
+                }
+            } else if observedData.args.bannerImage.value.range(of: "gradient=", options: .regularExpression) != nil {
+                if let colourValues = observedData.args.bannerImage.value.split(usingRegex: "gradient=").last {
+                    // angle degrees is the last element if it contains the text angle=, otherwise it's 90
+                    GradientColourView(colourValues: colourValues.split(usingRegex: ":").first ?? "accent",
+                                       angleDegrees: Double(colourValues.split(usingRegex: ":").last?.split(usingRegex: "angle=").last ?? "90") ?? 90 )
+                    .frame(maxHeight: maxBannerHeight)
+                }
             } else {
                 DisplayImage(observedData.args.bannerImage.value, corners: false, showBackgroundOnError: true)
                     .aspectRatio(contentMode: .fill)
@@ -51,26 +59,8 @@ struct BannerImageView: View {
                     .clipped()
             }
             if observedData.args.bannerTitle.present {
-                HStack {
-                    if observedData.appProperties.titleFontAlignment.lowercased() == "right" {
-                        Spacer()
-                    }
-                    InlineText(observedData.args.titleOption.value, parser: ColoredMarkdownParser())
-                        .font(
-                            observedData.appProperties.titleFontName.isEmpty ?
-                                .system(size: observedData.appProperties.titleFontSize, weight: observedData.appProperties.titleFontWeight) :
-                                    .custom(observedData.appProperties.titleFontName, size: observedData.appProperties.titleFontSize)
-                        )
-                        .fontWeight(observedData.appProperties.titleFontWeight)
-                        .foregroundColor(observedData.appProperties.titleFontColour)
-                        .accessibilityHint(observedData.args.titleOption.value)
-                        .shadow(radius: observedData.appProperties.titleFontShadow ? blurRadius : 0)
-                        .padding(appDefaults.topPadding)
-                        .frame(alignment: .center)
-                    if observedData.appProperties.titleFontAlignment.lowercased() == "left" {
-                        Spacer()
-                    }
-                }
+                TitleView(observedData: observedData)
+                    .shadow(radius: observedData.appProperties.titleFontShadow ? blurRadius : 0)
             }
         }
     }

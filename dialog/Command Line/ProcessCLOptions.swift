@@ -945,6 +945,9 @@ func processCLOptions(json: JSON = getJSON()) {
             if json[appArguments.titleFont.long]["alignment"].exists() {
                 appvars.titleFontAlignment = json[appArguments.titleFont.long]["alignment"].stringValue
             }
+            if json[appArguments.titleFont.long]["offset"].exists() {
+                appvars.titleFontOffset = json[appArguments.titleFont.long]["offset"].number as! CGFloat
+            }
         } else {
             writeLog("titleFont.value : \(appArguments.titleFont.value)")
             let fontCLValues = appArguments.titleFont.value
@@ -974,6 +977,9 @@ func processCLOptions(json: JSON = getJSON()) {
                     case  "alignment":
                         appvars.titleFontAlignment = item[1]
                         writeLog("titleFontAlignment : \(appvars.titleFontAlignment)")
+                    case "offset":
+                        appvars.titleFontOffset = item[1].floatValue()
+                        writeLog("titleFontOffset : \(appvars.titleFontOffset)")
                     default:
                         writeLog("Unknown paramater \(item[0])")
                 }

@@ -139,6 +139,7 @@ struct AppVariables {
     var titleFontName                   = ""
     var titleFontShadow                 = Bool(false)
     var titleFontAlignment              = ""
+    var titleFontOffset                 = CGFloat(0)
     var messageFontSize                 = CGFloat(20)
     var messageFontColour               = Color.primary
     var messageFontWeight               = Font.Weight.regular

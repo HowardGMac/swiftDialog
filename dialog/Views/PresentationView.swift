@@ -61,8 +61,9 @@ struct PresentationView: View {
                                 .frame(maxWidth: content.size.width*sbWidthProportion)
                         } else {
                             ZStack {
-                                SolidColourView(colourValue: observedData.args.watermarkImage.present ? observedData.args.watermarkImage.value : "accent")
-
+                                SolidColourView(colourValue: observedData.args.watermarkImage.value.split(usingRegex: ",").first ?? "accent",
+                                                withGradient: observedData.args.watermarkImage.value.split(usingRegex: ",").last != "nogradient"
+                                                )
                                 VStack {
                                     if observedData.args.iconOption.present && observedData.args.iconOption.value != "default" {
                                         HStack {
