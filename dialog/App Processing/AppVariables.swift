@@ -9,7 +9,7 @@ import Foundation
 import SwiftUI
 
 struct AppDefaults {
-    let cliversion                      = "2.6.0"
+    let cliversion                      = "3.1.0"
     let launchTime                      = Date.now
     // message default strings
     let titleDefault                    = String("default-title".localized)
@@ -139,6 +139,7 @@ struct AppVariables {
     var titleFontName                   = ""
     var titleFontShadow                 = Bool(false)
     var titleFontAlignment              = ""
+    var titleFontOffset                 = CGFloat(0)
     var messageFontSize                 = CGFloat(20)
     var messageFontColour               = Color.primary
     var messageFontWeight               = Font.Weight.regular

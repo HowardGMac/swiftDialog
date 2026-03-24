@@ -12,34 +12,58 @@ import Textual
 struct TitleView: View {
 
     @ObservedObject var observedData: DialogUpdatableContent
+    
+    var textAlignment: HorizontalAlignment = .center
+    var frameAlignment: Alignment = .center
+    var textOffset: CGFloat = 0
+    
+    init(observedData: DialogUpdatableContent) {
+        self.observedData = observedData
+        self.textOffset = observedData.appProperties.titleFontOffset
+        
+        switch observedData.appProperties.titleFontAlignment.lowercased() {
+        case "left":
+            self.textAlignment = .leading
+            self.frameAlignment = .leading
+        case "right":
+            self.textAlignment = .trailing
+            self.frameAlignment = .trailing
+            if observedData.appProperties.titleFontOffset > 0 {
+                // When using offsets and right alignment we want to ensure the offset is in the correct direction
+                self.textOffset = observedData.appProperties.titleFontOffset * -1
+            }
+        default:
+            self.textAlignment = .center
+            self.frameAlignment = .center
+        }
+    }
 
     var body: some View {
-        HStack {
-            if observedData.appProperties.titleFontAlignment.lowercased() == "right" {
-                Spacer()
+            VStack(alignment: textAlignment) {
+                InlineText(observedData.args.titleOption.value, parser: ColoredMarkdownParser())
+                    .font(
+                        observedData.appProperties.titleFontName.isEmpty ?
+                            .system(size: observedData.appProperties.titleFontSize, weight: observedData.appProperties.titleFontWeight) :
+                                .custom(observedData.appProperties.titleFontName, size: observedData.appProperties.titleFontSize)
+                    )
+                    .accessibilityHint(observedData.args.titleOption.value)
+                    
+                if observedData.args.subTitleOption.present {
+                    InlineText(observedData.args.subTitleOption.value, parser: ColoredMarkdownParser())
+                        .font(
+                            observedData.appProperties.titleFontName.isEmpty ?
+                                .system(size: observedData.appProperties.titleFontSize-10, weight: observedData.appProperties.titleFontWeight) :
+                                    .custom(observedData.appProperties.titleFontName, size: observedData.appProperties.titleFontSize-10)
+                        )
+                        .accessibilityHint(observedData.args.subTitleOption.value)
+                }
+                    
             }
-            InlineText(observedData.args.titleOption.value, parser: ColoredMarkdownParser())
-                .font(
-                    observedData.appProperties.titleFontName.isEmpty ?
-                    Font.system(size: observedData.appProperties.titleFontSize, weight: observedData.appProperties.titleFontWeight, design: .default) :
-                            .custom(observedData.appProperties.titleFontName, size: observedData.appProperties.titleFontSize)
-                )
-                .fontWeight(observedData.appProperties.titleFontWeight)
-                .foregroundColor(observedData.appProperties.titleFontColour)
-                .padding([.leading, .trailing], 20)
-            /*
-             Text(observedData.args.titleOption.value)
-             .titleFont(fontName: observedData.appProperties.titleFontName,
-             fontSize: observedData.appProperties.titleFontSize,
-             fontWeight: observedData.appProperties.titleFontWeight
-             )
-             .foregroundColor(observedData.appProperties.titleFontColour)
-             .accessibilityHint(observedData.args.titleOption.value)
-             */
-            if observedData.appProperties.titleFontAlignment.lowercased() == "left" {
-                Spacer()
-            }
-        }
+            .fontWeight(observedData.appProperties.titleFontWeight)
+            .foregroundColor(observedData.appProperties.titleFontColour)
+            .padding(appDefaults.topPadding)
+            .frame(maxWidth: .infinity, alignment: frameAlignment)
+            .offset(x: textOffset)
     }
 }
 

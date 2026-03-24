@@ -13,18 +13,20 @@ struct SDHelp {
     public func printHelpShort() {
         writeLog("Printing short help")
         print("swiftDialog v\(getVersionString())")
-        print("©2024 Bart Reardon\n")
+        print("© CSIRO and Bart Reardon\n")
         print("\n use --help <option> for more details\n")
         let mirror = Mirror(reflecting: argument)
         for child in mirror.children {
             if let arg = child.value as? CommandlineArgument {
-                var helpArgs = " --\(arg.long) \(arg.helpUsage)"
-                if arg.short != "" {
-                    helpArgs = " -\(arg.short), \(helpArgs)"
-                }
-                if arg.helpShort != "" {
-                    print("  \(helpArgs)\n")
-                    print("\t\(arg.helpShort)\n")
+                if !arg.hidden {
+                    var helpArgs = " --\(arg.long) \(arg.helpUsage)"
+                    if arg.short != "" {
+                        helpArgs = " -\(arg.short), \(helpArgs)"
+                    }
+                    if arg.helpShort != "" {
+                        print("  \(helpArgs)\n")
+                        print("\t\(arg.helpShort)\n")
+                    }
                 }
             }
         }
@@ -1245,6 +1247,169 @@ struct SDHelp {
         Prints list of command line options and any arguments
 
         Use with an option name as the argument to get detailed information about that argument
+"""
+
+        // MARK: - Previously undocumented options — help text stubs added for release/3.1.0
+
+        argument.onAdvance.helpShort = "Execute a shell command when advancing between cards"
+        argument.onAdvance.helpUsage = "<command>"
+        argument.onAdvance.helpLong = """
+        When using cards mode, specifies a shell command to execute each time the user
+        advances to the next card. The command receives a JSON payload via stdin containing
+        the current card index, card ID and user input from the current card.
+
+        JSON payload format:
+            {
+                "cardIndex": <int>,
+                "cardId": "<string>",
+                "input": { <user input key/value pairs> }
+            }
+
+        If the command exits with code 0, advancement proceeds.
+        If the command exits with a non-zero code, advancement is blocked and the
+        stderr (or stdout) output is displayed to the user as an error message.
+
+        Example:
+            --\(argument.onAdvance.long) "/path/to/validation_script.sh"
+"""
+
+        argument.helpAlignment.helpShort = "Set the help message text alignment"
+        argument.helpAlignment.helpUsage = "[left | centre | center | right]"
+        argument.helpAlignment.helpLong = """
+        Sets the text alignment of the help sheet message content.
+        Default alignment matches the message alignment setting.
+"""
+
+        argument.helpSheetButton.helpShort = "Set the help sheet dismiss button text"
+        argument.helpSheetButton.helpUsage = "<text>"
+        argument.helpSheetButton.helpLong = """
+        Sets the text displayed on the button used to dismiss the help sheet.
+        Default is "OK".
+"""
+
+        argument.iconAccessabilityLabel.helpShort = "Set the accessibility label for the dialog icon"
+        argument.iconAccessabilityLabel.helpUsage = "<text>"
+        argument.iconAccessabilityLabel.helpLong = """
+        Provides alternative text for the dialog icon, used by screen readers
+        and other assistive technologies.
+        Default is "Dialog Icon".
+"""
+
+        argument.bannerHeight.helpShort = "Set the banner image height"
+        argument.bannerHeight.helpUsage = "<number>"
+        argument.bannerHeight.helpLong = """
+        Sets the height of the banner image area in points.
+        Use in conjunction with --\(argument.bannerImage.long).
+"""
+
+
+        argument.button1ShellActionOption.helpShort = "Set a shell command to execute when Button1 is clicked"
+        argument.button1ShellActionOption.helpUsage = "<command>"
+        argument.button1ShellActionOption.helpLong = """
+        Specifies a shell command to execute when button 1 is clicked,
+        instead of opening a URL as with --\(argument.button1ActionOption.long).
+
+        The command is executed via /bin/zsh.
+        Return code when actioned is 0.
+"""
+
+        
+        argument.dropdownStyle.helpShort = "Set the presentation style for select lists"
+        argument.dropdownStyle.helpUsage = "[list | radio | searchable | multiselect]"
+        argument.dropdownStyle.helpLong = """
+        Controls the display style of all dropdown/select list items.
+        This applies globally; per-list styles can also be set via modifiers
+        on --\(argument.dropdownTitle.long).
+
+        Default is "list".
+"""
+
+        argument.setAppIcon.helpShort = "Set the swiftDialog application icon"
+        argument.setAppIcon.helpUsage = "<file>"
+        argument.setAppIcon.helpLong = """
+        Sets the swiftDialog application icon to the specified image.
+        Also updates the icons of any embedded notification helper apps.
+        swiftDialog will exit immediately after setting the icon.
+"""
+
+        argument.callingPid.helpShort = "Monitor a parent process by PID"
+        argument.callingPid.helpUsage = "<int>"
+        argument.callingPid.helpLong = """
+        Monitors the specified process ID. If the process terminates,
+        swiftDialog will automatically exit with code 40.
+
+        This is used to tie the dialog lifecycle to a calling process.
+"""
+
+        argument.progressTextAlignment.helpShort = "Set progress text alignment"
+        argument.progressTextAlignment.helpUsage = "[left | right]"
+        argument.progressTextAlignment.helpLong = """
+        Sets the horizontal alignment of the progress text displayed underneath the progress bar.
+        Default is centred.
+"""
+
+        argument.verboseLogging.helpShort = "Enable verbose logging output"
+        argument.verboseLogging.helpUsage = ""
+        argument.verboseLogging.helpLong = """
+        Enables verbose logging. Debug and error messages will be printed to stderr.
+"""
+
+        argument.constructionKit.helpShort = "Launch the swiftDialog builder UI"
+        argument.constructionKit.helpUsage = ""
+        argument.constructionKit.helpLong = """
+        Activates the swiftDialog construction kit / builder interface for
+        real-time configuration and preview of dialog settings.
+"""
+
+        argument.ignoreDND.helpShort = "Ignore Do Not Disturb settings"
+        argument.ignoreDND.helpUsage = ""
+        argument.ignoreDND.helpLong = """
+        When set, swiftDialog will ignore the system Do Not Disturb setting
+        and display notifications and play sounds regardless.
+"""
+
+        argument.eulaMode.helpShort = "Enable EULA display mode"
+        argument.eulaMode.helpUsage = ""
+        argument.eulaMode.helpLong = """
+        Displays the message content in a monospaced font within a scrollable list area,
+        suited for presenting license agreements or legal text.
+"""
+
+        argument.notificationGoPing.helpShort = "Enable notification sounds"
+        argument.notificationGoPing.helpUsage = ""
+        argument.notificationGoPing.helpLong = """
+        When sending a system notification via --\(argument.notification.long),
+        enables the notification sound.
+"""
+
+        argument.alwaysReturnUserInput.helpShort = "Always return user input regardless of exit code"
+        argument.alwaysReturnUserInput.helpUsage = ""
+        argument.alwaysReturnUserInput.helpLong = """
+        By default, user input (textfields, checkboxes, dropdowns) is only returned
+        when swiftDialog exits with code 0 (button 1 / success).
+        When this flag is set, user input is returned for all exit codes.
+"""
+
+        argument.hideTimer.helpShort = "Hide the autoplay timer on image carousels"
+        argument.hideTimer.helpUsage = ""
+        argument.hideTimer.helpLong = """
+        When images are displayed as a carousel with --\(argument.autoPlay.long),
+        this option hides the countdown timer indicator between image transitions.
+"""
+
+        argument.demoOption.helpShort = "Enable demo mode"
+        argument.demoOption.helpUsage = ""
+        argument.demoOption.helpLong = """
+        Launches swiftDialog in demonstration mode with sample content
+        for testing and preview purposes.
+"""
+
+        argument.listFonts.helpShort = "List all available fonts"
+        argument.listFonts.helpUsage = ""
+        argument.listFonts.helpLong = """
+        Prints all available font families and font names on the system to stdout,
+        then exits. Useful for determining valid values for --\(argument.titleFont.long)
+        and other font-related options.
 """
     }
 

@@ -65,6 +65,20 @@ func getJSON() -> JSON {
         // read json in from text string
         json = processJSONString(jsonString: CLOptionText(optionName: appArguments.jsonString))
     }
+    
+    // Check for cards mode and load cards if present
+    if json["cards"].exists() && json["cards"].type == .array && !json["cards"].arrayValue.isEmpty {
+        writeLog("Cards array detected in JSON configuration")
+        if cardState.loadCards(from: json) {
+            writeLog("Cards mode activated with \(cardState.totalCards) cards")
+            // Return the merged configuration (global defaults + first card) for initial setup
+            // This ensures window properties like height, width, ontop, moveable are applied
+            if let firstCard = cardState.currentCard {
+                return cardState.getMergedConfiguration(for: firstCard)
+            }
+        }
+    }
+    
     return json
 }
 
@@ -931,6 +945,9 @@ func processCLOptions(json: JSON = getJSON()) {
             if json[appArguments.titleFont.long]["alignment"].exists() {
                 appvars.titleFontAlignment = json[appArguments.titleFont.long]["alignment"].stringValue
             }
+            if json[appArguments.titleFont.long]["offset"].exists() {
+                appvars.titleFontOffset = json[appArguments.titleFont.long]["offset"].number as! CGFloat
+            }
         } else {
             writeLog("titleFont.value : \(appArguments.titleFont.value)")
             let fontCLValues = appArguments.titleFont.value
@@ -960,6 +977,9 @@ func processCLOptions(json: JSON = getJSON()) {
                     case  "alignment":
                         appvars.titleFontAlignment = item[1]
                         writeLog("titleFontAlignment : \(appvars.titleFontAlignment)")
+                    case "offset":
+                        appvars.titleFontOffset = item[1].floatValue()
+                        writeLog("titleFontOffset : \(appvars.titleFontOffset)")
                     default:
                         writeLog("Unknown paramater \(item[0])")
                 }

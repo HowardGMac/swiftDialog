@@ -13,37 +13,34 @@ import SystemConfiguration
 
 var background = BlurWindowController()
 
-// AppDelegate and extension used for notifications
+// AppDelegate for window and lifecycle management
 class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate {
 
     var monitor: PIDMonitor?
     var windowDragManager: WindowDragManager?
 
+    func applicationWillFinishLaunching(_ notification: Notification) {
+        UNUserNotificationCenter.current().delegate = self
+    }
+
+    // MARK: - UNUserNotificationCenterDelegate (legacy path)
+    // Notifications sent via the main app bundle (without --style) are handled here.
+    // This path is deprecated and will be removed in a future major version.
+
     func userNotificationCenter(_ center: UNUserNotificationCenter,
-                didReceive response: UNNotificationResponse,
-                withCompletionHandler completionHandler:
-                                @escaping () -> Void) {
-
-        writeLog("reading notification", logLevel: .debug)
-
+                                didReceive response: UNNotificationResponse,
+                                withCompletionHandler completionHandler: @escaping () -> Void) {
+        writeLog("reading notification response", logLevel: .debug)
         if response.notification.request.content.categoryIdentifier == "SD_NOTIFICATION" {
             appvars.isProcessingNotification = true
             processNotification(response: response)
         } else {
             writeLog("unknown notification type", logLevel: .debug)
         }
-
-        // call the completion handler when done.
         completionHandler()
-        // quit dialog since we dont need to show anything
         if appvars.isProcessingNotification {
-            //quitDialog(exitCode: appDefaults.exitNow.code)
+            quitDialog(exitCode: 0)
         }
-    }
-
-    func applicationWillFinishLaunching(_ notification: Notification) {
-        UNUserNotificationCenter.current().delegate = self
-
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -181,9 +178,7 @@ struct dialogApp: App {
 
         appvars.debugMode = CLOptionPresent(optionName: appArguments.debug)
 
-        if CommandLine.arguments.count > 1 {
-            appvars.isProcessingNotification = false
-        } else {
+        if CommandLine.arguments.count <= 1 {
             appvars.noargs = true
         }
 
@@ -202,19 +197,22 @@ struct dialogApp: App {
         // get all the command line option values
         processCLOptionValues()
 
+        // Legacy notification path: --notification without --style routes through the main app bundle.
+        // This preserves compatibility with existing MDM notification-settings profiles.
+        // Deprecated: use --style banner or --style alert with dialogcli for new deployments.
         if !(appArguments.setAppIcon.present ||
-            appArguments.getVersion.present ||
-            appArguments.buyCoffee.present ||
-            appArguments.helpOption.present ||
-            appArguments.licence.present) {
+             appArguments.getVersion.present ||
+             appArguments.buyCoffee.present ||
+             appArguments.helpOption.present ||
+             appArguments.licence.present) {
             checkNotificationAuthorisation(notificationPresent: appArguments.notification.present)
         }
 
         captureQuitKey(keyValue: appArguments.quitKey.value)
 
-        // check if we are sending a notification
+        // Check if we are sending a notification via the legacy path (no --style argument).
         if checkForDialogNotificationMode(appArguments) {
-            writeLog("Notification sent")
+            writeLog("Notification sent via legacy path (main app bundle)")
             quitDialog(exitCode: 0)
         }
 

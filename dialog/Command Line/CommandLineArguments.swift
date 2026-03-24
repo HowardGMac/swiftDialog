@@ -19,6 +19,7 @@ struct CommandlineArgument {
     var present: Bool = false
     var isbool: Bool = false
     var overrideDefaultIfNill = false
+    var hidden: Bool = false
 }
 
 struct CommandLineArguments {
@@ -45,7 +46,7 @@ struct CommandLineArguments {
     var bannerHeight             = CommandlineArgument(long: "bannerheight")
     var button1TextOption        = CommandlineArgument(long: "button1text", defaultValue: appDefaults.button1Default, overrideDefaultIfNill: true)
     var button1ActionOption      = CommandlineArgument(long: "button1action")
-    var button1ShellActionOption = CommandlineArgument(long: "button1shellaction",short: "")
+    var button1ShellActionOption = CommandlineArgument(long: "button1shellaction",short: "", hidden: true)
     var button1Symbol            = CommandlineArgument(long: "button1symbol")
     var button2TextOption        = CommandlineArgument(long: "button2text", defaultValue: appDefaults.button2Default)
     var button2ActionOption      = CommandlineArgument(long: "button2action")
@@ -102,10 +103,11 @@ struct CommandLineArguments {
     var preferredAppearance      = CommandlineArgument(long: "appearance")
     var setAppIcon               = CommandlineArgument(long: "seticon")
     var notificationIdentifier   = CommandlineArgument(long: "identifier", short: "id")
-    var callingPid               = CommandlineArgument(long: "pid", defaultValue: 0)
+    var callingPid               = CommandlineArgument(long: "pid", defaultValue: 0, hidden: true)
     var playSound                = CommandlineArgument(long: "sound")
     var dockIcon                 = CommandlineArgument(long: "dockicon")
     var dockBadge                = CommandlineArgument(long: "dockiconbadge")
+    var onAdvance                = CommandlineArgument(long: "onadvance")
 
     // command line options that take no additional parameters
     var button1Disabled          = CommandlineArgument(long: "button1disabled", isbool: true)
@@ -115,10 +117,10 @@ struct CommandLineArguments {
     var getVersion               = CommandlineArgument(long: "version", short: "v", isbool: true)
     var hideIcon                 = CommandlineArgument(long: "hideicon", short: "h", isbool: true)
     var centreIcon               = CommandlineArgument(long: "centreicon", isbool: true)
-    var centreIconSE             = CommandlineArgument(long: "centericon", isbool: true) // the other way of spelling
+    var centreIconSE             = CommandlineArgument(long: "centericon", isbool: true, hidden: true) // the other way of spelling
     var helpOption               = CommandlineArgument(long: "help", isbool: true)
     var demoOption               = CommandlineArgument(long: "demo", isbool: true)
-    var buyCoffee                = CommandlineArgument(long: "coffee", short: "☕️", isbool: true)
+    var buyCoffee                = CommandlineArgument(long: "coffee", short: "☕️", isbool: true, hidden: true)
     var licence                  = CommandlineArgument(long: "licence", short: "l", isbool: true)
     var warningIcon              = CommandlineArgument(long: "warningicon", isbool: true) // Deprecated
     var infoIcon                 = CommandlineArgument(long: "infoicon", isbool: true) // Deprecated
@@ -362,8 +364,140 @@ extension CommandLineArguments {
                     case "showDockIcon": self.showDockIcon = argument
                     case "dockIcon": self.dockIcon = argument
                     case "dockBadge": self.dockBadge = argument
+                    case "onAdvance": self.onAdvance = argument
                     default: break
                     }
+                }
+            }
+        }
+    }
+    
+    /// Reset all arguments to their default values
+    /// This creates a fresh CommandLineArguments struct and copies the default values
+    public mutating func resetToDefaults() {
+        let defaults = CommandLineArguments()
+        let mirror = Mirror(reflecting: defaults)
+        
+        for child in mirror.children {
+            if let argument = child.value as? CommandlineArgument, let label = child.label {
+                // Reset each argument to its default state
+                switch label {
+                case "titleOption": self.titleOption = argument
+                case "subTitleOption": self.subTitleOption = argument
+                case "messageOption": self.messageOption = argument
+                case "dialogStyle": self.dialogStyle = argument
+                case "messageAlignment": self.messageAlignment = argument
+                case "helpAlignment": self.helpAlignment = argument
+                case "messageAlignmentOld": self.messageAlignmentOld = argument
+                case "messageVerticalAlignment": self.messageVerticalAlignment = argument
+                case "helpMessage": self.helpMessage = argument
+                case "helpImage": self.helpImage = argument
+                case "helpSheetButton": self.helpSheetButton = argument
+                case "iconOption": self.iconOption = argument
+                case "iconSize": self.iconSize = argument
+                case "iconAlpha": self.iconAlpha = argument
+                case "iconAccessabilityLabel": self.iconAccessabilityLabel = argument
+                case "overlayIconOption": self.overlayIconOption = argument
+                case "bannerImage": self.bannerImage = argument
+                case "bannerTitle": self.bannerTitle = argument
+                case "bannerText": self.bannerText = argument
+                case "bannerHeight": self.bannerHeight = argument
+                case "button1TextOption": self.button1TextOption = argument
+                case "button1ActionOption": self.button1ActionOption = argument
+                case "button1Symbol": self.button1Symbol = argument
+                case "button1ShellActionOption": self.button1ShellActionOption = argument
+                case "button2TextOption": self.button2TextOption = argument
+                case "button2ActionOption": self.button2ActionOption = argument
+                case "button2Symbol": self.button2Symbol = argument
+                case "buttonInfoTextOption": self.buttonInfoTextOption = argument
+                case "buttonInfoActionOption": self.buttonInfoActionOption = argument
+                case "buttonInfoSymbol": self.buttonInfoSymbol = argument
+                case "buttonStyle": self.buttonStyle = argument
+                case "buttonSize": self.buttonSize = argument
+                case "buttonTextSize": self.buttonTextSize = argument
+                case "dropdownTitle": self.dropdownTitle = argument
+                case "dropdownValues": self.dropdownValues = argument
+                case "dropdownDefault": self.dropdownDefault = argument
+                case "dropdownStyle": self.dropdownStyle = argument
+                case "titleFont": self.titleFont = argument
+                case "messageFont": self.messageFont = argument
+                case "textField": self.textField = argument
+                case "textFieldLiveValidation": self.textFieldLiveValidation = argument
+                case "checkbox": self.checkbox = argument
+                case "checkboxStyle": self.checkboxStyle = argument
+                case "timerBar": self.timerBar = argument
+                case "progressBar": self.progressBar = argument
+                case "progressText": self.progressText = argument
+                case "progressTextAlignment": self.progressTextAlignment = argument
+                case "mainImage": self.mainImage = argument
+                case "mainImageCaption": self.mainImageCaption = argument
+                case "windowWidth": self.windowWidth = argument
+                case "windowHeight": self.windowHeight = argument
+                case "watermarkImage": self.watermarkImage = argument
+                case "watermarkAlpha": self.watermarkAlpha = argument
+                case "watermarkPosition": self.watermarkPosition = argument
+                case "watermarkFill": self.watermarkFill = argument
+                case "watermarkScale": self.watermarkScale = argument
+                case "position": self.position = argument
+                case "positionOffset": self.positionOffset = argument
+                case "video": self.video = argument
+                case "videoCaption": self.videoCaption = argument
+                case "debug": self.debug = argument
+                case "listItem": self.listItem = argument
+                case "listStyle": self.listStyle = argument
+                case "listSelectionEnabled": self.listSelectionEnabled = argument
+                case "infoText": self.infoText = argument
+                case "infoBox": self.infoBox = argument
+                case "quitKey": self.quitKey = argument
+                case "webcontent": self.webcontent = argument
+                case "logFileToTail": self.logFileToTail = argument
+                case "logFileHistory": self.logFileHistory = argument
+                case "preferredViewOrder": self.preferredViewOrder = argument
+                case "preferredAppearance": self.preferredAppearance = argument
+                case "playSound": self.playSound = argument
+                // Boolean flags
+                case "button1Disabled": self.button1Disabled = argument
+                case "button2Disabled": self.button2Disabled = argument
+                case "button2Option": self.button2Option = argument
+                case "infoButtonOption": self.infoButtonOption = argument
+                case "hideIcon": self.hideIcon = argument
+                case "centreIcon": self.centreIcon = argument
+                case "centreIconSE": self.centreIconSE = argument
+                case "warningIcon": self.warningIcon = argument
+                case "infoIcon": self.infoIcon = argument
+                case "cautionIcon": self.cautionIcon = argument
+                case "hideTimerBar": self.hideTimerBar = argument
+                case "hideTimer": self.hideTimer = argument
+                case "autoPlay": self.autoPlay = argument
+                case "blurScreen": self.blurScreen = argument
+                case "notification": self.notification = argument
+                case "movableWindow": self.movableWindow = argument
+                case "forceOnTop": self.forceOnTop = argument
+                case "smallWindow": self.smallWindow = argument
+                case "bigWindow": self.bigWindow = argument
+                case "fullScreenWindow": self.fullScreenWindow = argument
+                case "quitOnInfo": self.quitOnInfo = argument
+                case "listFonts": self.listFonts = argument
+                case "jsonOutPut": self.jsonOutPut = argument
+                case "ignoreDND": self.ignoreDND = argument
+                case "miniMode": self.miniMode = argument
+                case "eulaMode": self.eulaMode = argument
+                case "presentationMode": self.presentationMode = argument
+                case "windowButtonsEnabled": self.windowButtonsEnabled = argument
+                case "windowResizable": self.windowResizable = argument
+                case "showOnAllScreens": self.showOnAllScreens = argument
+                case "notificationGoPing": self.notificationGoPing = argument
+                case "loginWindow": self.loginWindow = argument
+                case "hideDefaultKeyboardAction": self.hideDefaultKeyboardAction = argument
+                case "alwaysReturnUserInput": self.alwaysReturnUserInput = argument
+                case "removeNotification": self.removeNotification = argument
+                case "showSoundControls": self.showSoundControls = argument
+                case "hideOtherApps": self.hideOtherApps = argument
+                case "showDockIcon": self.showDockIcon = argument
+                case "dockIcon": self.dockIcon = argument
+                case "dockBadge": self.dockBadge = argument
+                case "onAdvance": self.onAdvance = argument
+                default: break
                 }
             }
         }

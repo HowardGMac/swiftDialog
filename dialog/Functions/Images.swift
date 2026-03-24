@@ -151,4 +151,13 @@ func generateQRCode(from string: String, withSize: CGFloat? = 300) -> NSImage {
 func setAppIcon(named name: String) {
     let iconImage = getImageFromPath(fileImagePath: name)
     NSWorkspace.shared.setIcon(iconImage, forFile: Bundle.main.bundlePath)
+
+    // Also update the icons of the embedded notifier helper apps
+    let helpersURL = URL(fileURLWithPath: Bundle.main.bundlePath)
+        .appending(path: "Contents/Helpers", directoryHint: .isDirectory)
+    let notifierApps = (try? FileManager.default.contentsOfDirectory(atPath: helpersURL.path)) ?? []
+    for appName in notifierApps where appName.hasSuffix(".app") {
+        let appPath = helpersURL.appending(path: appName).path
+        NSWorkspace.shared.setIcon(iconImage, forFile: appPath)
+    }
 }

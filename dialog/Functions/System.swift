@@ -57,7 +57,152 @@ func checkRegexPattern(regexPattern: String, textToValidate: String) -> Bool {
     return  returnValue
 }
 
-func buttonAction(action: String, exitCode: Int32, executeShell: Bool, shouldQuit: Bool = true, observedObject: DialogUpdatableContent) {
+/// Validates required fields and regex patterns for the current card/dialog
+/// - Parameter observedObject: The dialog content to validate
+/// - Returns: A tuple of (isValid, errorMessage) where isValid is true if validation passed
+func validateRequiredFields(observedObject: DialogUpdatableContent) -> (isValid: Bool, errorMessage: String) {
+    var requiredString = ""
+    var isValid = true
+    
+    // Validate text fields
+    if appArguments.textField.present {
+        writeLog("Validating text fields for required and regex")
+        
+        for index in 0..<(userInputState.textFields.count) {
+            let textField = userInputState.textFields[index]
+            let textfieldValue = textField.value
+            let textfieldTitle = textField.title
+            let textfieldRequired = textField.required
+            let textfieldValidation = textField.confirm
+            let textFieldValidationValue = textField.validationValue
+            userInputState.textFields[index].requiredTextfieldHighlight = Color.clear
+            
+            if textfieldRequired && textfieldValue == "" {
+                NSSound.beep()
+                requiredString += "  - \"\(textfieldTitle)\" \("is required".localized)<br>"
+                userInputState.textFields[index].requiredTextfieldHighlight = Color.red
+                isValid = false
+                writeLog("Required text field \(textfieldTitle) has no value")
+            } else if !(textfieldValue.isEmpty)
+                        && !(textField.regex.isEmpty)
+                        && !checkRegexPattern(regexPattern: textField.regex, textToValidate: textfieldValue) {
+                NSSound.beep()
+                userInputState.textFields[index].requiredTextfieldHighlight = Color.green
+                requiredString += "  - "+(textField.regexError)+"<br>"
+                isValid = false
+                writeLog("Textfield \(textfieldTitle) value \(textfieldValue) does not meet regex requirements \(String(describing: textField.regex))")
+            } else if textfieldValidation && textFieldValidationValue != textfieldValue {
+                NSSound.beep()
+                requiredString += "  - \"\(textfieldTitle)\" \("confirmation failed  <br>values do not match".localized)<br>"
+                userInputState.textFields[index].requiredTextfieldHighlight = Color.red
+                isValid = false
+                writeLog("Text field \(textfieldTitle) confirmation failed")
+            }
+        }
+    }
+    
+    // Validate dropdown/select items
+    if observedObject.args.dropdownValues.present {
+        writeLog("Validating select items for required")
+        
+        for index in 0..<(userInputState.dropdownItems.count) {
+            let dropdownItem = userInputState.dropdownItems[index]
+            let dropdownItemSelectedValue = dropdownItem.selectedValue
+            let dropdownItemRequired = dropdownItem.required
+            userInputState.dropdownItems[index].requiredfieldHighlight = Color.clear
+            
+            if dropdownItemRequired && dropdownItemSelectedValue == "" {
+                NSSound.beep()
+                requiredString += "  - \"\(dropdownItem.title)\" \("is required".localized)<br>"
+                userInputState.dropdownItems[index].requiredfieldHighlight = Color.red
+                isValid = false
+                writeLog("Required select item \(dropdownItem.title) has no value")
+            }
+        }
+    }
+    
+    return (isValid, requiredString.replacingOccurrences(of: "<br>", with: "\n"))
+}
+
+/// Executes the onAdvance callback command with card input as JSON on stdin
+/// - Parameters:
+///   - command: The shell command to execute
+///   - cardIndex: The current card index
+///   - cardId: The current card ID (from JSON config, if specified)
+///   - input: The user input from the current card
+/// - Returns: A tuple of (success, errorMessage) where success is true if callback returned 0
+func executeOnAdvanceCallback(command: String, cardIndex: Int, cardId: String?, input: [String: Any]) -> (success: Bool, errorMessage: String) {
+    writeLog("Executing onAdvance callback: \(command)")
+    
+    // Build JSON payload
+    var payload: [String: Any] = [
+        "cardIndex": cardIndex,
+        "input": input
+    ]
+    if let cardId = cardId {
+        payload["cardId"] = cardId
+    }
+    
+    // Convert to JSON string
+    guard let jsonData = try? JSONSerialization.data(withJSONObject: payload, options: []),
+          let jsonString = String(data: jsonData, encoding: .utf8) else {
+        writeLog("Failed to serialize callback payload to JSON", logLevel: .error)
+        return (false, "Internal error: failed to serialize callback data")
+    }
+    
+    writeLog("Callback JSON payload: \(jsonString)", logLevel: .debug)
+    
+    let task = Process()
+    let inputPipe = Pipe()
+    let outputPipe = Pipe()
+    let errorPipe = Pipe()
+    
+    task.standardInput = inputPipe
+    task.standardOutput = outputPipe
+    task.standardError = errorPipe
+    task.arguments = ["-c", command]
+    task.launchPath = "/bin/zsh"
+    
+    do {
+        try task.run()
+        
+        // Write JSON to stdin
+        inputPipe.fileHandleForWriting.write(jsonString.data(using: .utf8)!)
+        inputPipe.fileHandleForWriting.closeFile()
+        
+        task.waitUntilExit()
+        
+        let exitCode = task.terminationStatus
+        writeLog("onAdvance callback exited with code: \(exitCode)")
+        
+        if exitCode == 0 {
+            return (true, "")
+        } else {
+            // Read stderr for error message
+            let errorData = errorPipe.fileHandleForReading.readDataToEndOfFile()
+            var errorMessage = String(data: errorData, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            
+            // If no error message, read stdout
+            if errorMessage.isEmpty {
+                let outputData = outputPipe.fileHandleForReading.readDataToEndOfFile()
+                errorMessage = String(data: outputData, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            }
+            
+            // Default error message if none provided
+            if errorMessage.isEmpty {
+                errorMessage = "Callback command returned non-zero exit code (\(exitCode))"
+            }
+            
+            writeLog("onAdvance callback failed: \(errorMessage)", logLevel: .error)
+            return (false, errorMessage)
+        }
+    } catch {
+        writeLog("Failed to execute onAdvance callback: \(error.localizedDescription)", logLevel: .error)
+        return (false, "Failed to execute callback: \(error.localizedDescription)")
+    }
+}
+
+func buttonAction(action: String, exitCode: Int32, executeShell: Bool, shouldQuit: Bool = true, observedObject: DialogUpdatableContent, isCardsMode: Bool = false) {
     writeLog("processing button action \(action)")
     if action != "" {
         if executeShell {
@@ -67,6 +212,10 @@ func buttonAction(action: String, exitCode: Int32, executeShell: Bool, shouldQui
         }
     }
     if shouldQuit {
+        // In cards mode, store final card input before quitting
+        if isCardsMode && cardState.isCardsMode {
+            cardState.storeCurrentCardInput(observedObject.collectCurrentUserInput())
+        }
         quitDialog(exitCode: exitCode, observedObject: observedObject)
     }
 }
@@ -216,17 +365,71 @@ func quitDialog(exitCode: Int32, exitMessage: String? = "", observedObject: Dial
         }
 
         // print the output
-        if observedObject?.args.jsonOutPut.present ?? false {
-            print(json)
+        if cardState.isCardsMode {
+            // Cards mode: output all accumulated input from all cards
+            writeLog("Cards mode: outputting accumulated input from \(cardState.totalCards) cards")
+            
+            if observedObject?.args.jsonOutPut.present ?? false {
+                // JSON output for cards mode - include current card's input plus accumulated
+                var cardsJson = JSON()
+                let allInput = cardState.getAllAccumulatedInput()
+                
+                // Add all accumulated input to the JSON
+                for (key, value) in allInput {
+                    if let dictValue = value as? [String: Any] {
+                        cardsJson[key] = JSON(dictValue)
+                    } else if let boolValue = value as? Bool {
+                        cardsJson[key].bool = boolValue
+                    } else if let stringValue = value as? String {
+                        cardsJson[key].string = stringValue
+                    } else {
+                        cardsJson[key] = JSON(value)
+                    }
+                }
+                
+                // Merge current card's json output
+                for (key, value) in json {
+                    cardsJson[key] = value
+                }
+                
+                print(cardsJson)
+            } else {
+                // Plain text output for cards mode
+                let allInput = cardState.getAllAccumulatedInput()
+                for (key, value) in allInput {
+                    if let dictValue = value as? [String: Any] {
+                        if let selectedValue = dictValue["selectedValue"] {
+                            print("\"\(key)\" : \"\(selectedValue)\"")
+                        }
+                        if let selectedIndex = dictValue["selectedIndex"] {
+                            print("\"\(key)\" index : \"\(selectedIndex)\"")
+                        }
+                    } else {
+                        print("\"\(key)\" : \"\(value)\"")
+                    }
+                }
+                // Also print current card's output
+                for index in 0..<outputArray.count {
+                    print(outputArray[index])
+                }
+            }
         } else {
-            for index in 0..<outputArray.count {
-                print(outputArray[index])
+            // Normal mode: original output behavior
+            if observedObject?.args.jsonOutPut.present ?? false {
+                print(json)
+            } else {
+                for index in 0..<outputArray.count {
+                    print(outputArray[index])
+                }
             }
         }
     }
     if appArguments.hideOtherApps.present {
         NSApp.unhideAllApplications(nil)
     }
+    
+    // Reset card state on exit
+    cardState.reset()
     
     exit(exitCode)
 }

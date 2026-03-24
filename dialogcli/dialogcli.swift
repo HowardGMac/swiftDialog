@@ -16,6 +16,18 @@ struct CommandResult {
     let stderr: String
 }
 
+/// Returns the value of `--arg` from an argument list, or nil if absent / no value follows.
+private func argValue(_ arg: String, in args: [String]) -> String? {
+    guard let idx = args.firstIndex(of: arg), idx + 1 < args.count else { return nil }
+    let value = args[idx + 1]
+    return value.hasPrefix("-") ? nil : value
+}
+
+/// Returns true if `--flag` is present in an argument list.
+private func argPresent(_ flag: String, in args: [String]) -> Bool {
+    args.contains(flag)
+}
+
 @main
 struct DialogLauncher: ParsableCommand {
     static let process = Process()
@@ -46,7 +58,58 @@ struct DialogLauncher: ParsableCommand {
         // get my process id
         let myPid = getpid()
         //fputs("my pid \(myPid)\n", stderr)
-        
+
+        // --- Notification routing ---
+        // When --notification AND --style are both present, delegate to the appropriate
+        // helper bundle embedded inside Dialog.app/Contents/Helpers/.
+        // If --style is absent, fall through to the main Dialog binary which handles
+        // notifications via the main app bundle ID (legacy path, preserved for backwards
+        // compatibility with existing MDM notification-settings profiles).
+        let notificationStyle = argValue("--style", in: passthroughArgs)?.lowercased()
+        if argPresent("--notification", in: passthroughArgs) && notificationStyle != nil {
+            let style = notificationStyle!
+            let helperName: String
+            switch style {
+            case "alert":
+                helperName = "Dialog Alert"
+            default:
+                helperName = "Dialog Banner"
+            }
+
+            // Remove --style and its value from args before forwarding — the helper
+            // doesn't recognise the window-style argument.
+            var notifierArgs = passthroughArgs
+            if let styleIdx = notifierArgs.firstIndex(of: "--style") {
+                notifierArgs.remove(at: styleIdx)
+                if styleIdx < notifierArgs.count, !notifierArgs[styleIdx].hasPrefix("-") {
+                    notifierArgs.remove(at: styleIdx)
+                }
+            }
+
+            // Locate the helper relative to our own app bundle
+            var helperBinary: String? = nil
+            if let appBundle = findAppBundlePath() {
+                let candidate = "\(appBundle.path)/Contents/Helpers/\(helperName).app/Contents/MacOS/\(helperName)"
+                if FileManager.default.fileExists(atPath: candidate) {
+                    helperBinary = candidate
+                } else {
+                    fputs("ERROR: Helper not found at expected path: \(candidate)\n", stderr)
+                }
+            } else {
+                fputs("ERROR: Could not locate app bundle from executable path: \(resolvedExecutablePath())\n", stderr)
+            }
+
+            guard let binary = helperBinary else {
+                fputs("ERROR: Cannot find \(helperName) helper inside app bundle\n", stderr)
+                throw ExitCode(255)
+            }
+
+            let result = runCommand(binary: binary, args: notifierArgs)
+            fputs(result.stderr, stderr)
+            throw ExitCode(result.status)
+        }
+        // --- End notification routing ---
+
         // Define default paths and binary locations
         let defaultCommandFile = "/var/tmp/dialog.log"
         let dialogAppPath = "/Library/Application Support/Dialog/Dialog.app"
@@ -225,13 +288,12 @@ struct DialogLauncher: ParsableCommand {
         var stdout: String = ""
         var stderrOutput: String = ""
 
-        // Set up a handler to stream stderr in real-time
+        // Collect stderr output for the return value; callers are responsible for forwarding it.
         let stderrHandle = stderrPipe.fileHandleForReading
         stderrHandle.readabilityHandler = { handle in
             let data = handle.availableData
             if let line = String(data: data, encoding: .utf8), !line.isEmpty {
                 stderrOutput += line
-                fputs(line, stderr)
             }
         }
 
