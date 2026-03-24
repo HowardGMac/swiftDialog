@@ -7,7 +7,6 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		0940615EFBFC244436D747B3 /* ProceduralGradientView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6E8E519DD87E7826F5EBAC1A /* ProceduralGradientView.swift */; };
 		062741FDB5F456F760F3FC51 /* NotifierLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = CCC243992F6AB9F100F659CF /* NotifierLog.swift */; };
 		08AE83C187FDB862D626851D /* NotifierLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = CCC243992F6AB9F100F659CF /* NotifierLog.swift */; };
 		0940615EFBFC244436D747B3 /* ProceduralGradientView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6E8E519DD87E7826F5EBAC1A /* ProceduralGradientView.swift */; };
@@ -175,8 +174,6 @@
 		CC21905D2A7BD7D300269525 /* AppVariables.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC21905C2A7BD7D300269525 /* AppVariables.swift */; };
 		CC21905F2A7BD7F200269525 /* CommandLineArguments.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC21905E2A7BD7F200269525 /* CommandLineArguments.swift */; };
 		CC6AA24000B0ED567AB53585 /* NotifierApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = CCC2439E2F6ABA2100F659CF /* NotifierApp.swift */; };
-		CC72EBA22E1BE43400CF0DA1 /* dialogcli.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC72EBA12E1BE43400CF0DA1 /* dialogcli.swift */; };
-		CC72EBA82E1BE48800CF0DA1 /* ArgumentParser in Frameworks */ = {isa = PBXBuildFile; productRef = CC72EBA72E1BE48800CF0DA1 /* ArgumentParser */; };
 		CC7D43CF2B972976004B9E65 /* PresentationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC7D43CE2B972976004B9E65 /* PresentationView.swift */; };
 		CC7D44082B9C6FB5004B9E65 /* ImageFader.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC7D44072B9C6FB5004B9E65 /* ImageFader.swift */; };
 		CC9F8FEF2A5EC76400802A88 /* ImageProcessing.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC9F8FEE2A5EC76400802A88 /* ImageProcessing.swift */; };
@@ -247,15 +244,6 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 		417DEF222E7ACCB600CAB132 /* CopyFiles */ = {
-			isa = PBXCopyFilesBuildPhase;
-			buildActionMask = 2147483647;
-			dstPath = /usr/share/man/man1/;
-			dstSubfolderSpec = 0;
-			files = (
-			);
-			runOnlyForDeploymentPostprocessing = 1;
-		};
-		CC72EB9D2E1BE43400CF0DA1 /* CopyFiles */ = {
 			isa = PBXCopyFilesBuildPhase;
 			buildActionMask = 2147483647;
 			dstPath = /usr/share/man/man1/;
@@ -442,7 +430,6 @@
 		CC21905C2A7BD7D300269525 /* AppVariables.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppVariables.swift; sourceTree = "<group>"; };
 		CC21905E2A7BD7F200269525 /* CommandLineArguments.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommandLineArguments.swift; sourceTree = "<group>"; };
 		CC2190622A7DCA1A00269525 /* preinstall */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.script.sh; path = preinstall; sourceTree = "<group>"; };
-		CC72EB9F2E1BE43400CF0DA1 /* dialog */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = dialog; sourceTree = BUILT_PRODUCTS_DIR; };
 		CC72EBA12E1BE43400CF0DA1 /* dialogcli.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = dialogcli.swift; sourceTree = "<group>"; };
 		CC7D43CE2B972976004B9E65 /* PresentationView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PresentationView.swift; sourceTree = "<group>"; };
 		CC7D44072B9C6FB5004B9E65 /* ImageFader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImageFader.swift; sourceTree = "<group>"; };
@@ -519,14 +506,6 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-		CC72EB9C2E1BE43400CF0DA1 /* Frameworks */ = {
-			isa = PBXFrameworksBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-				CC72EBA82E1BE48800CF0DA1 /* ArgumentParser in Frameworks */,
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -585,7 +564,6 @@
 				4154C2DA25F76BDB00A3D373 /* Dialog.app */,
 				4154C2EC25F76BDC00A3D373 /* dialogTests.xctest */,
 				4154C2F725F76BDC00A3D373 /* dialogUITests.xctest */,
-				CC72EB9F2E1BE43400CF0DA1 /* dialog */,
 				417DEF262E7ACCB600CAB132 /* dialogcli */,
 				C1D3259B83CF7CF206AC829A /* Dialog Alert.app */,
 				3DE18B81A96CFA5B6B75F255 /* Dialog Banner.app */,
@@ -1075,26 +1053,6 @@
 			productReference = C1D3259B83CF7CF206AC829A /* Dialog Alert.app */;
 			productType = "com.apple.product-type.application";
 		};
-		CC72EB9E2E1BE43400CF0DA1 /* dialog */ = {
-			isa = PBXNativeTarget;
-			buildConfigurationList = CC72EBA52E1BE43400CF0DA1 /* Build configuration list for PBXNativeTarget "dialog" */;
-			buildPhases = (
-				CC72EB9B2E1BE43400CF0DA1 /* Sources */,
-				CC72EB9C2E1BE43400CF0DA1 /* Frameworks */,
-				CC72EB9D2E1BE43400CF0DA1 /* CopyFiles */,
-			);
-			buildRules = (
-			);
-			dependencies = (
-			);
-			name = dialog;
-			packageProductDependencies = (
-				CC72EBA72E1BE48800CF0DA1 /* ArgumentParser */,
-			);
-			productName = dialogcli;
-			productReference = CC72EB9F2E1BE43400CF0DA1 /* dialog */;
-			productType = "com.apple.product-type.tool";
-		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -1115,9 +1073,6 @@
 					4154C2F625F76BDC00A3D373 = {
 						CreatedOnToolsVersion = 12.4;
 						TestTargetID = 4154C2D925F76BDB00A3D373;
-					};
-					CC72EB9E2E1BE43400CF0DA1 = {
-						CreatedOnToolsVersion = 15.4;
 					};
 				};
 			};
@@ -1152,7 +1107,6 @@
 				4154C2D925F76BDB00A3D373 /* Dialog */,
 				4154C2EB25F76BDC00A3D373 /* dialogTests */,
 				4154C2F625F76BDC00A3D373 /* dialogUITests */,
-				CC72EB9E2E1BE43400CF0DA1 /* dialog */,
 				417DEF1B2E7ACCB600CAB132 /* dialogcli */,
 				95F390E6B6EB6F7FB24D25EC /* Dialog Alert */,
 				925B204C9A47C85216C4A35C /* Dialog Banner */,
@@ -1436,14 +1390,6 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-		CC72EB9B2E1BE43400CF0DA1 /* Sources */ = {
-			isa = PBXSourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-				CC72EBA22E1BE43400CF0DA1 /* dialogcli.swift in Sources */,
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
@@ -1499,12 +1445,13 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = YES;
 				CODE_SIGN_IDENTITY = "Apple Development";
-				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "-";
-				CODE_SIGN_STYLE = Automatic;
+				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "Developer ID Application";
+				CODE_SIGN_STYLE = Manual;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
 				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_TEAM = "";
+				"DEVELOPMENT_TEAM[sdk=macosx*]" = PWA5E9TQ59;
 				ENABLE_HARDENED_RUNTIME = YES;
 				INFOPLIST_FILE = "DialogNotifier/Info-Alert.plist";
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -1517,6 +1464,7 @@
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
 				SDKROOT = macosx;
+				SKIP_INSTALL = YES;
 				SWIFT_VERSION = 5.0;
 			};
 			name = Release;
@@ -1527,12 +1475,13 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = YES;
 				CODE_SIGN_IDENTITY = "Apple Development";
-				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "-";
-				CODE_SIGN_STYLE = Automatic;
+				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "Developer ID Application";
+				CODE_SIGN_STYLE = Manual;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
 				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_TEAM = "";
+				"DEVELOPMENT_TEAM[sdk=macosx*]" = PWA5E9TQ59;
 				ENABLE_HARDENED_RUNTIME = YES;
 				INFOPLIST_FILE = "DialogNotifier/Info-Banner.plist";
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -1545,6 +1494,7 @@
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
 				SDKROOT = macosx;
+				SKIP_INSTALL = YES;
 				SWIFT_VERSION = 5.0;
 			};
 			name = Release;
@@ -1680,12 +1630,13 @@
 				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = YES;
 				CODE_SIGN_ENTITLEMENTS = dialog/dialog.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Development";
-				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "-";
-				CODE_SIGN_STYLE = Automatic;
+				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "Developer ID Application";
+				CODE_SIGN_STYLE = Manual;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
 				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_ASSET_PATHS = "\"dialog/Preview Content\"";
+				DEVELOPMENT_TEAM = "";
 				"DEVELOPMENT_TEAM[sdk=macosx*]" = PWA5E9TQ59;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
@@ -1711,12 +1662,13 @@
 				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = YES;
 				CODE_SIGN_ENTITLEMENTS = dialog/dialog.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Development";
-				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "-";
-				CODE_SIGN_STYLE = Automatic;
+				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "Developer ID Application";
+				CODE_SIGN_STYLE = Manual;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
 				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_ASSET_PATHS = "\"dialog/Preview Content\"";
+				DEVELOPMENT_TEAM = "";
 				"DEVELOPMENT_TEAM[sdk=macosx*]" = PWA5E9TQ59;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
@@ -1738,9 +1690,12 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
-				CODE_SIGN_STYLE = Automatic;
+				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "Developer ID Application";
+				CODE_SIGN_STYLE = Manual;
 				COMBINE_HIDPI_IMAGES = YES;
 				DEAD_CODE_STRIPPING = YES;
+				DEVELOPMENT_TEAM = "";
+				"DEVELOPMENT_TEAM[sdk=macosx*]" = PWA5E9TQ59;
 				INFOPLIST_FILE = dialogTests/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -1750,6 +1705,7 @@
 				MACOSX_DEPLOYMENT_TARGET = 15.0;
 				PRODUCT_BUNDLE_IDENTIFIER = au.bartreardon.dialogTests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
+				PROVISIONING_PROFILE_SPECIFIER = "";
 				SWIFT_VERSION = 5.0;
 				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Dialog.app/Contents/MacOS/Dialog";
 			};
@@ -1759,9 +1715,12 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
-				CODE_SIGN_STYLE = Automatic;
+				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "Developer ID Application";
+				CODE_SIGN_STYLE = Manual;
 				COMBINE_HIDPI_IMAGES = YES;
 				DEAD_CODE_STRIPPING = YES;
+				DEVELOPMENT_TEAM = "";
+				"DEVELOPMENT_TEAM[sdk=macosx*]" = PWA5E9TQ59;
 				INFOPLIST_FILE = dialogTests/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -1771,6 +1730,7 @@
 				MACOSX_DEPLOYMENT_TARGET = 15.0;
 				PRODUCT_BUNDLE_IDENTIFIER = au.bartreardon.dialogTests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
+				PROVISIONING_PROFILE_SPECIFIER = "";
 				SWIFT_VERSION = 5.0;
 				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Dialog.app/Contents/MacOS/Dialog";
 			};
@@ -1779,9 +1739,12 @@
 		4154C30725F76BDC00A3D373 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				CODE_SIGN_STYLE = Automatic;
+				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "Developer ID Application";
+				CODE_SIGN_STYLE = Manual;
 				COMBINE_HIDPI_IMAGES = YES;
 				DEAD_CODE_STRIPPING = YES;
+				DEVELOPMENT_TEAM = "";
+				"DEVELOPMENT_TEAM[sdk=macosx*]" = PWA5E9TQ59;
 				INFOPLIST_FILE = dialogUITests/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -1791,6 +1754,7 @@
 				MACOSX_DEPLOYMENT_TARGET = 15.0;
 				PRODUCT_BUNDLE_IDENTIFIER = au.bartreardon.dialogUITests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
+				PROVISIONING_PROFILE_SPECIFIER = "";
 				SWIFT_VERSION = 5.0;
 				TEST_TARGET_NAME = dialog;
 			};
@@ -1799,9 +1763,12 @@
 		4154C30825F76BDC00A3D373 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				CODE_SIGN_STYLE = Automatic;
+				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "Developer ID Application";
+				CODE_SIGN_STYLE = Manual;
 				COMBINE_HIDPI_IMAGES = YES;
 				DEAD_CODE_STRIPPING = YES;
+				DEVELOPMENT_TEAM = "";
+				"DEVELOPMENT_TEAM[sdk=macosx*]" = PWA5E9TQ59;
 				INFOPLIST_FILE = dialogUITests/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -1811,6 +1778,7 @@
 				MACOSX_DEPLOYMENT_TARGET = 15.0;
 				PRODUCT_BUNDLE_IDENTIFIER = au.bartreardon.dialogUITests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
+				PROVISIONING_PROFILE_SPECIFIER = "";
 				SWIFT_VERSION = 5.0;
 				TEST_TARGET_NAME = dialog;
 			};
@@ -1822,9 +1790,10 @@
 				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
 				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
 				CODE_SIGN_IDENTITY = "Apple Development";
-				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "-";
+				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "Developer ID Application";
 				CODE_SIGN_INJECT_BASE_ENTITLEMENTS = NO;
-				CODE_SIGN_STYLE = Automatic;
+				CODE_SIGN_STYLE = Manual;
+				DEVELOPMENT_TEAM = "";
 				"DEVELOPMENT_TEAM[sdk=macosx*]" = PWA5E9TQ59;
 				ENABLE_APP_SANDBOX = NO;
 				ENABLE_HARDENED_RUNTIME = YES;
@@ -1847,9 +1816,10 @@
 				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
 				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
 				CODE_SIGN_IDENTITY = "Apple Development";
-				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "-";
+				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "Developer ID Application";
 				CODE_SIGN_INJECT_BASE_ENTITLEMENTS = NO;
-				CODE_SIGN_STYLE = Automatic;
+				CODE_SIGN_STYLE = Manual;
+				DEVELOPMENT_TEAM = "";
 				"DEVELOPMENT_TEAM[sdk=macosx*]" = PWA5E9TQ59;
 				ENABLE_APP_SANDBOX = NO;
 				ENABLE_HARDENED_RUNTIME = YES;
@@ -1865,65 +1835,19 @@
 			};
 			name = Release;
 		};
-		CC72EBA32E1BE43400CF0DA1 /* Debug */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
-				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
-				CODE_SIGN_IDENTITY = "Apple Development";
-				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "-";
-				CODE_SIGN_INJECT_BASE_ENTITLEMENTS = NO;
-				CODE_SIGN_STYLE = Automatic;
-				"DEVELOPMENT_TEAM[sdk=macosx*]" = PWA5E9TQ59;
-				ENABLE_APP_SANDBOX = NO;
-				ENABLE_HARDENED_RUNTIME = YES;
-				ENABLE_USER_SCRIPT_SANDBOXING = YES;
-				GCC_C_LANGUAGE_STANDARD = gnu17;
-				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
-				MACOSX_DEPLOYMENT_TARGET = 15.6;
-				PRODUCT_BUNDLE_IDENTIFIER = au.csiro.dialogcli;
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				PROVISIONING_PROFILE_SPECIFIER = "";
-				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
-				SWIFT_VERSION = 5.0;
-			};
-			name = Debug;
-		};
-		CC72EBA42E1BE43400CF0DA1 /* Release */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
-				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
-				CODE_SIGN_IDENTITY = "Apple Development";
-				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "-";
-				CODE_SIGN_INJECT_BASE_ENTITLEMENTS = NO;
-				CODE_SIGN_STYLE = Automatic;
-				"DEVELOPMENT_TEAM[sdk=macosx*]" = PWA5E9TQ59;
-				ENABLE_APP_SANDBOX = NO;
-				ENABLE_HARDENED_RUNTIME = YES;
-				ENABLE_USER_SCRIPT_SANDBOXING = YES;
-				GCC_C_LANGUAGE_STANDARD = gnu17;
-				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
-				MACOSX_DEPLOYMENT_TARGET = 15.6;
-				PRODUCT_BUNDLE_IDENTIFIER = au.csiro.dialogcli;
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				PROVISIONING_PROFILE_SPECIFIER = "";
-				SWIFT_VERSION = 5.0;
-			};
-			name = Release;
-		};
 		E2F9312B6547F230D864466F /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = YES;
 				CODE_SIGN_IDENTITY = "Apple Development";
-				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "-";
-				CODE_SIGN_STYLE = Automatic;
+				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "Developer ID Application";
+				CODE_SIGN_STYLE = Manual;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
 				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_TEAM = "";
+				"DEVELOPMENT_TEAM[sdk=macosx*]" = PWA5E9TQ59;
 				ENABLE_HARDENED_RUNTIME = YES;
 				INFOPLIST_FILE = "DialogNotifier/Info-Banner.plist";
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -1936,6 +1860,7 @@
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
 				SDKROOT = macosx;
+				SKIP_INSTALL = YES;
 				SWIFT_VERSION = 5.0;
 			};
 			name = Debug;
@@ -1946,12 +1871,13 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = YES;
 				CODE_SIGN_IDENTITY = "Apple Development";
-				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "-";
-				CODE_SIGN_STYLE = Automatic;
+				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "Developer ID Application";
+				CODE_SIGN_STYLE = Manual;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
 				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_TEAM = "";
+				"DEVELOPMENT_TEAM[sdk=macosx*]" = PWA5E9TQ59;
 				ENABLE_HARDENED_RUNTIME = YES;
 				INFOPLIST_FILE = "DialogNotifier/Info-Alert.plist";
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -1964,6 +1890,7 @@
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
 				SDKROOT = macosx;
+				SKIP_INSTALL = YES;
 				SWIFT_VERSION = 5.0;
 			};
 			name = Debug;
@@ -2021,15 +1948,6 @@
 			buildConfigurations = (
 				417DEF242E7ACCB600CAB132 /* Debug */,
 				417DEF252E7ACCB600CAB132 /* Release */,
-			);
-			defaultConfigurationIsVisible = 0;
-			defaultConfigurationName = Release;
-		};
-		CC72EBA52E1BE43400CF0DA1 /* Build configuration list for PBXNativeTarget "dialog" */ = {
-			isa = XCConfigurationList;
-			buildConfigurations = (
-				CC72EBA32E1BE43400CF0DA1 /* Debug */,
-				CC72EBA42E1BE43400CF0DA1 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
@@ -2121,11 +2039,6 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 41BD41C32EA1FAF500DA7124 /* XCRemoteSwiftPackageReference "SDWebImageSwiftUI" */;
 			productName = SDWebImageSwiftUI;
-		};
-		CC72EBA72E1BE48800CF0DA1 /* ArgumentParser */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = CC72EBA62E1BE48800CF0DA1 /* XCRemoteSwiftPackageReference "swift-argument-parser" */;
-			productName = ArgumentParser;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};
