@@ -104,7 +104,14 @@ class InspectState: ObservableObject, FileMonitorDelegate, @unchecked Sendable {
     /// 4. `--inspect-mode` (always fresh start for development/testing)
     /// This allows testing/demo scenarios to always start from step 1 while preserving form values.
     var shouldSkipCompletedSteps: Bool {
-        // CLI --debug flag
+        // Opt-in resumable: state persistence only when explicitly enabled
+        // Default is false — always fresh start unless config says "resumable": true
+        guard config?.resumable == true else {
+            writeLog("InspectState: Resumable mode not enabled, always fresh start", logLevel: .debug)
+            return false
+        }
+
+        // CLI --debug flag overrides resumable
         if appvars.debugMode {
             writeLog("InspectState: Debug mode enabled via --debug CLI flag", logLevel: .info)
             return false
@@ -1160,7 +1167,7 @@ class InspectState: ObservableObject, FileMonitorDelegate, @unchecked Sendable {
                     "stepType": "intro",
                     "title": "swiftDialog — Inspect Mode",
                     "subtitle": "A sample configuration to get you started.",
-                    "heroImage": "SF=macbook.gen2",
+                    "heroImage": "computer",
                     "heroImageSize": 180,
                     "content": [
                         {

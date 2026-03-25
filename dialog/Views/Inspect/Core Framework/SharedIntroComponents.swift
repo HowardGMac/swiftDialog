@@ -82,12 +82,19 @@ struct IntroHeroImage: View {
     @ViewBuilder
     private func sfSymbolView(symbolName: String) -> some View {
         let contentSize = size - 2 * effectivePadding
+        let color = sfSymbolColor ?? accentColor
         Image(systemName: symbolName)
             .resizable()
             .aspectRatio(contentMode: .fit)
-            .font(.system(size: contentSize * 0.5, weight: sfSymbolWeight))
+            .symbolRenderingMode(.hierarchical)
+            .font(.system(size: contentSize * 0.45, weight: sfSymbolWeight))
+            .frame(width: contentSize * 0.5, height: contentSize * 0.5)
+            .foregroundStyle(color)
             .frame(width: contentSize, height: contentSize)
-            .foregroundStyle(sfSymbolColor ?? accentColor)
+            .background(
+                Circle()
+                    .fill(color.opacity(0.1))
+            )
     }
 
     @ViewBuilder
