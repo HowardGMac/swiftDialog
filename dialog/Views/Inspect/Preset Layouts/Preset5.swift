@@ -4904,8 +4904,8 @@ struct Preset5View: View {
 
                                 // Hero image area
                                 if let heroImage = heroImageOverrides[step.id] ?? step.heroImage {
-                                    if heroImage.hasPrefix("SF=") {
-                                        // SF Symbol hero — use IntroHeroImage for proper rendering
+                                    if heroImage.hasPrefix("SF=") || heroImage.lowercased() == "computer" {
+                                        // SF Symbol or device icon — use IntroHeroImage for proper rendering
                                         IntroHeroImage(
                                             path: heroImage,
                                             shape: step.heroImageShape ?? "none",

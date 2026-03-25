@@ -874,7 +874,7 @@ struct BentoInlineDetailView: View {
         .frame(width: gridSize.width, height: gridSize.height)
         .background(
             RoundedRectangle(cornerRadius: 16)
-                .fill(Color(NSColor.windowBackgroundColor))
+                .fill(hasGradientBackground ? (gradientPalette.first ?? Color(NSColor.windowBackgroundColor)) : Color(NSColor.windowBackgroundColor))
                 .shadow(color: .black.opacity(0.18), radius: 24, y: 10)
         )
         .overlay(
@@ -1144,30 +1144,32 @@ struct BentoGridView: View {
 
             }
             .frame(width: availableWidth, height: gridHeight, alignment: .topLeading)
-            .overlay {
-                // Inline detail overlay (when inlineExpansion is true)
-                // Rendered as overlay so it doesn't affect grid frame height
-                if inlineExpansion, let expandedId = expandedCellId,
-                   let cellConfig = cells.first(where: { $0.id == expandedId }),
-                   let detailConfig = cellConfig.detailOverlay {
-                    BentoInlineDetailView(
-                        cellConfig: cellConfig,
-                        overlay: detailConfig,
-                        gridSize: detailSize,
-                        accentColor: accentColor,
-                        iconBasePath: iconBasePath,
-                        inspectState: inspectState,
-                        onClose: {
-                            withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) {
-                                expandedCellId = nil
-                            }
-                        }
-                    )
-                    .transition(.scale(scale: 0.8).combined(with: .opacity))
-                }
-            }
         }
         .frame(height: BentoLayoutEngine.calculateGridHeight(cells: cells, rowHeight: rowHeight * scaleFactor, gap: gap * scaleFactor))
+        // Inline detail — presented as sheet for consistent window-centered positioning
+        .sheet(isPresented: Binding(
+            get: { expandedCellId != nil },
+            set: { if !$0 { expandedCellId = nil } }
+        )) {
+            if let expandedId = expandedCellId,
+               let cellConfig = cells.first(where: { $0.id == expandedId }),
+               let detailConfig = cellConfig.detailOverlay {
+                BentoInlineDetailView(
+                    cellConfig: cellConfig,
+                    overlay: detailConfig,
+                    gridSize: CGSize(width: 720, height: 540),
+                    accentColor: accentColor,
+                    iconBasePath: iconBasePath,
+                    inspectState: inspectState,
+                    onClose: {
+                        withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) {
+                            expandedCellId = nil
+                        }
+                    }
+                )
+                .frame(minWidth: 720, idealWidth: 720, minHeight: 540)
+            }
+        }
         .onAppear {
             staggerCellAppearance()
         }
