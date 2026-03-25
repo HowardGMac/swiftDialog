@@ -24,6 +24,7 @@ import SwiftUI
 struct Preset4View: View, InspectLayoutProtocol {
     @ObservedObject var inspectState: InspectState
     @StateObject private var iconCache = PresetIconCache()
+    @StateObject private var commandRouter = CommandRouter()
     @Environment(\.colorScheme) private var colorScheme
 
     @State private var currentPhase: PresetPhase = .main
@@ -68,6 +69,15 @@ struct Preset4View: View, InspectLayoutProtocol {
         !inspectState.items.isEmpty && terminalCount >= inspectState.items.count
     }
 
+    /// Trigger file path for external command IPC
+    private var triggerFilePath: String {
+        if let customPath = inspectState.config?.triggerFile { return customPath }
+        if appArguments.inspectMode.present {
+            return "/tmp/swiftdialog_dev_preset4.trigger"
+        }
+        return "/tmp/swiftdialog_\(ProcessInfo.processInfo.processIdentifier)_preset4.trigger"
+    }
+
     // MARK: - Body
 
     var body: some View {
@@ -91,6 +101,14 @@ struct Preset4View: View, InspectLayoutProtocol {
             if inspectState.config?.introScreen != nil {
                 currentPhase = .intro
             }
+
+            setupCommandRouter()
+            writeReadinessFile(config: inspectState.config, triggerFilePath: triggerFilePath,
+                               preset: "4", itemCount: inspectState.items.count,
+                               itemIDs: inspectState.items.map { $0.id })
+        }
+        .onDisappear {
+            commandRouter.stopMonitoring()
         }
         .onChange(of: inspectState.completedItems) { _, _ in
             // Advance progress (high-water-mark — never decreases)
@@ -254,6 +272,7 @@ struct Preset4View: View, InspectLayoutProtocol {
                 }
 
                 Button(inspectState.config?.introScreen?.buttonText ?? "Continue") {
+                    DialogNotifications.postButtonClick(stepId: "intro", label: "Continue", action: "continue")
                     withAnimation(InspectConstants.stepTransition) {
                         currentPhase = .main
                     }
@@ -292,6 +311,11 @@ struct Preset4View: View, InspectLayoutProtocol {
                 if allItemsTerminal {
                     Button(inspectState.config?.summaryScreen?.buttonText ?? "Done") {
                         writeLog("Preset4View: Report closed", logLevel: .info)
+                        cleanupReadinessFile(config: inspectState.config, triggerFilePath: triggerFilePath,
+                                             exitCode: 0,
+                                             completedCount: inspectState.completedItems.count,
+                                             failedCount: inspectState.failedItems.count,
+                                             totalSteps: inspectState.items.count)
                         exit(0)
                     }
                     .buttonStyle(.borderedProminent)
@@ -428,7 +452,13 @@ struct Preset4View: View, InspectLayoutProtocol {
                 Spacer()
 
                 Button(inspectState.config?.summaryScreen?.buttonText ?? "Close") {
+                    DialogNotifications.postButtonClick(stepId: "summary", label: "Close", action: "close")
                     writeLog("Preset4View: Summary closed", logLevel: .info)
+                    cleanupReadinessFile(config: inspectState.config, triggerFilePath: triggerFilePath,
+                                         exitCode: 0,
+                                         completedCount: inspectState.completedItems.count,
+                                         failedCount: inspectState.failedItems.count,
+                                         totalSteps: inspectState.items.count)
                     exit(0)
                 }
                 .buttonStyle(.borderedProminent)
@@ -756,6 +786,8 @@ struct Preset4View: View, InspectLayoutProtocol {
         // Transition when all items are terminal (completed + failed)
         guard allItemsTerminal else { return }
 
+        DialogNotifications.postStepChange(stepId: "all", action: "all_complete")
+
         if inspectState.config?.summaryScreen != nil {
             withAnimation(InspectConstants.stepTransition) {
                 currentPhase = .summary
@@ -763,9 +795,99 @@ struct Preset4View: View, InspectLayoutProtocol {
         } else {
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
                 writeLog("Preset4View: All items complete, auto-exiting", logLevel: .info)
+                cleanupReadinessFile(config: inspectState.config, triggerFilePath: triggerFilePath,
+                                     exitCode: 0,
+                                     completedCount: inspectState.completedItems.count,
+                                     failedCount: inspectState.failedItems.count,
+                                     totalSteps: inspectState.items.count)
                 exit(0)
             }
         }
+    }
+
+    // MARK: - Command Router Setup
+
+    /// Wire the shared CommandRouter to Preset4's handlers.
+    /// Gives P4 trigger file monitoring, ack logging, and the full unified command protocol.
+    private func setupCommandRouter() {
+        commandRouter.presetLabel = "Preset4"
+        commandRouter.acknowledgmentLogPath = "/var/tmp/dialog-ack.log"
+        commandRouter.itemCount = inspectState.items.count
+
+        // Navigation
+        commandRouter.onNavigateByID = { [self] stepId in
+            if let index = inspectState.items.firstIndex(where: { $0.id == stepId }) {
+                isUserNavigating = true
+                currentItemIndex = index
+                DispatchQueue.main.asyncAfter(deadline: .now() + 5) { isUserNavigating = false }
+            }
+        }
+        commandRouter.onNavigateByIndex = { [self] index in
+            guard index >= 0, index < inspectState.items.count else { return }
+            isUserNavigating = true
+            currentItemIndex = index
+            DispatchQueue.main.asyncAfter(deadline: .now() + 5) { isUserNavigating = false }
+        }
+        commandRouter.onNext = { [self] in navigateItem(1) }
+        commandRouter.onPrev = { [self] in navigateItem(-1) }
+        commandRouter.onReset = { [self] in
+            withAnimation(.spring()) {
+                inspectState.completedItems.removeAll()
+                inspectState.failedItems.removeAll()
+                inspectState.downloadingItems.removeAll()
+                progressCount = 0
+                currentItemIndex = 0
+            }
+        }
+
+        // Completion
+        commandRouter.onComplete = { [self] stepId in
+            if inspectState.items.contains(where: { $0.id == stepId }) {
+                withAnimation(.spring()) { inspectState.completedItems.insert(stepId) }
+            }
+        }
+        commandRouter.onSuccess = { [self] stepId, _ in
+            if inspectState.items.contains(where: { $0.id == stepId }) {
+                withAnimation(.spring()) { inspectState.completedItems.insert(stepId) }
+            }
+        }
+        commandRouter.onFailure = { [self] stepId, _ in
+            if inspectState.items.contains(where: { $0.id == stepId }) {
+                withAnimation(.spring()) { inspectState.failedItems.insert(stepId) }
+            }
+        }
+        commandRouter.onWarning = { [self] stepId, _ in
+            // P4 treats warnings as completions (toast preset has no warning state)
+            if inspectState.items.contains(where: { $0.id == stepId }) {
+                withAnimation(.spring()) { inspectState.completedItems.insert(stepId) }
+            }
+        }
+
+        // Item-level status (maps to P4's simple completion model)
+        commandRouter.onItemStatus = { [self] itemId, status, _ in
+            guard inspectState.items.contains(where: { $0.id == itemId }) else { return }
+            switch status.lowercased() {
+            case "success", "completed":
+                withAnimation(.spring()) { inspectState.completedItems.insert(itemId) }
+            case "failed", "error":
+                withAnimation(.spring()) { inspectState.failedItems.insert(itemId) }
+            case "downloading":
+                withAnimation(.spring()) { inspectState.downloadingItems.insert(itemId) }
+            case "pending":
+                withAnimation(.spring()) {
+                    inspectState.completedItems.remove(itemId)
+                    inspectState.failedItems.remove(itemId)
+                    inspectState.downloadingItems.remove(itemId)
+                }
+            default: break
+            }
+        }
+
+        // Start trigger file monitoring + DistributedNotifications via CommandRouter
+        if !FileManager.default.fileExists(atPath: triggerFilePath) {
+            FileManager.default.createFile(atPath: triggerFilePath, contents: nil, attributes: nil)
+        }
+        commandRouter.startMonitoring(triggerFilePath: triggerFilePath)
     }
 }
 

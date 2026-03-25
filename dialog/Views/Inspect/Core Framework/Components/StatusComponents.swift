@@ -17,6 +17,7 @@ import SwiftUI
 struct StatusBadgeView: View {
     let label: String
     let state: String
+    let actual: String?
     let icon: String?
     let autoColor: Bool
     let customColor: Color?
@@ -99,8 +100,13 @@ struct StatusBadgeView: View {
         value.hasPrefix("/") || (value.contains(".") && !value.hasPrefix("SF="))
     }
 
+    /// Display text: shows actual value if set, otherwise falls back to state
+    private var displayText: String {
+        actual ?? state
+    }
+
     var body: some View {
-        let _ = writeLog("🟡 VIEW: StatusBadgeView rendering label='\(label)' state='\(state)' color=\(stateColor)", logLevel: .debug)
+        let _ = writeLog("VIEW: StatusBadgeView rendering label='\(label)' state='\(state)' actual='\(actual ?? "-")' color=\(stateColor)", logLevel: .debug)
 
         return HStack(spacing: 8 * scaleFactor) {
             statusBadgeIcon
@@ -111,10 +117,10 @@ struct StatusBadgeView: View {
                     .font(.system(size: 13 * scaleFactor, weight: .medium))
                     .foregroundStyle(.primary)
 
-                Text(state)
+                Text(displayText)
                     .font(.system(size: 12 * scaleFactor))
-                    .foregroundStyle(stateColor)
-                    .fontWeight(.semibold)
+                    .foregroundStyle(actual != nil ? .primary : stateColor)
+                    .fontWeight(actual != nil ? .regular : .semibold)
             }
 
             Spacer(minLength: 0)

@@ -51,6 +51,7 @@ struct Preset5View: View {
     @StateObject private var monitoringService = UnifiedMonitoringService()
     @StateObject private var introStepMonitor = IntroStepMonitorService()
     @StateObject private var complianceService = ComplianceAggregatorService()
+    @StateObject private var dynamicState = InspectDynamicState()
     @State private var preferencesService: PreferencesService?
     @State private var localizationService = LocalizationService()
 
@@ -85,9 +86,8 @@ struct Preset5View: View {
     @State private var heroImageOverrides: [String: String] = [:]    // stepId -> path/SF symbol
     @State private var iconBasePathOverride: String? = nil           // Override iconBasePath
 
-    // External command file monitoring (parity with Preset6)
-    @State private var commandFileMonitorTimer: Timer?
-    @State private var lastProcessedLineCount: Int = 0  // Line-offset tracking for trigger file (never clear, only advance)
+    // Command routing and file monitoring (hosted on @StateObject for class lifecycle)
+    @StateObject private var commandRouter = CommandRouter()
 
     // Form state management (for interactive form elements in intro steps)
     @State private var formValues: [String: String] = [:]
@@ -350,8 +350,10 @@ struct Preset5View: View {
         isSetupSize ? 20 : 16
     }
 
-    /// Save current step index for resume (linear step model)
+    /// Save current step index for resume (only when resumable mode is enabled)
     private func saveCurrentStepIndex() {
+        guard config?.resumable == true else { return }
+
         stateDefaults.set(currentStepIndex, forKey: "lastStepIndex")
 
         // Save selections
@@ -538,100 +540,7 @@ struct Preset5View: View {
         }
     }
 
-    // MARK: - External Command Processing (Parity with Preset6)
-
-    /// Process external commands from the command file
-    /// Supports: success:stepId[:message], failure:stepId[:reason], warning:stepId[:message]
-    private func processExternalCommands(_ content: String) {
-        let lines = content.components(separatedBy: .newlines)
-        for line in lines {
-            let trimmedLine = line.trimmingCharacters(in: .whitespaces)
-            guard !trimmedLine.isEmpty else { continue }
-            processPresetCommand(trimmedLine)
-        }
-    }
-
-    /// Process a single preset command
-    /// Command format examples:
-    /// - "success:processing-demo"
-    /// - "success:processing-demo:Custom success message"
-    /// - "failure:processing-demo"
-    /// - "failure:processing-demo:Error reason"
-    /// - "warning:processing-demo:Warning message"
-    /// - "navigate:stepId" - Jump to a specific step by ID
-    private func processPresetCommand(_ trimmedLine: String) {
-        if trimmedLine.hasPrefix("success:") {
-            // Extract message (format: "success:stepId:optional_message")
-            let parts = trimmedLine.dropFirst(8).split(separator: ":", maxSplits: 1)
-            let stepId = String(parts[0])
-            let message = parts.count > 1 ? String(parts[1]) : nil
-            writeLog("Preset5: Received external success command for step '\(stepId)'", logLevel: .info)
-            handleCompletionTrigger(stepId: stepId, result: .success(message: message))
-        } else if trimmedLine.hasPrefix("failure:") {
-            // Extract reason (format: "failure:stepId:optional_reason")
-            let parts = trimmedLine.dropFirst(8).split(separator: ":", maxSplits: 1)
-            let stepId = String(parts[0])
-            let reason = parts.count > 1 ? String(parts[1]) : "Step failed"
-            writeLog("Preset5: Received external failure command for step '\(stepId)'", logLevel: .info)
-            handleCompletionTrigger(stepId: stepId, result: .failure(message: reason))
-        } else if trimmedLine.hasPrefix("warning:") {
-            // Extract message (format: "warning:stepId:optional_message")
-            let parts = trimmedLine.dropFirst(8).split(separator: ":", maxSplits: 1)
-            let stepId = String(parts[0])
-            let message = parts.count > 1 ? String(parts[1]) : "Step warning"
-            writeLog("Preset5: Received external warning command for step '\(stepId)'", logLevel: .info)
-            handleCompletionTrigger(stepId: stepId, result: .warning(message: message))
-        } else if trimmedLine.hasPrefix("navigate:") {
-            // Navigate to a specific step (format: "navigate:stepId")
-            let stepId = String(trimmedLine.dropFirst(9))
-            writeLog("Preset5: Received navigate command for step '\(stepId)'", logLevel: .info)
-            navigateToStep(stepId: stepId)
-        } else if trimmedLine == "next" {
-            // Go to next step
-            writeLog("Preset5: Received next command", logLevel: .info)
-            goToNextStep()
-        } else if trimmedLine == "prev" || trimmedLine == "back" {
-            // Go to previous step
-            writeLog("Preset5: Received prev command", logLevel: .info)
-            goToPrevStep()
-        } else if trimmedLine.hasPrefix("set:") {
-            // Dynamic content override command (format: "set:type:target:value")
-            let parts = trimmedLine.dropFirst(4).split(separator: ":", maxSplits: 2)
-            if parts.count >= 2 {
-                let targetType = String(parts[0])
-                let value = String(parts[1])
-                let extra = parts.count > 2 ? String(parts[2]) : nil
-                handleSetCommand(targetType: targetType, value: value, extra: extra)
-            } else {
-                writeLog("Preset5: Invalid set command format: \(trimmedLine)", logLevel: .error)
-            }
-        } else if trimmedLine.hasPrefix("goto:") {
-            // Alias for navigate (Preset6 compatibility)
-            let stepId = String(trimmedLine.dropFirst(5))
-            writeLog("Preset5: Received goto command for step '\(stepId)'", logLevel: .info)
-            navigateToStep(stepId: stepId)
-        } else if trimmedLine.hasPrefix("item:") {
-            // Item-level status command (format: "item:itemId:status" or "item:itemId:status:message")
-            let parts = trimmedLine.dropFirst(5).split(separator: ":", maxSplits: 2)
-            guard parts.count >= 2 else {
-                writeLog("Preset5: Invalid item command format: \(trimmedLine)", logLevel: .error)
-                return
-            }
-            let itemId = String(parts[0])
-            let status = String(parts[1])
-            let message = parts.count > 2 ? String(parts[2]) : nil
-            handleItemStatusCommand(itemId: itemId, status: status, message: message)
-        } else if trimmedLine.hasPrefix("update_guidance:") {
-            // Dynamic guidance content update (format: "update_guidance:stepId:blockIndex:property=value" or "update_guidance:stepId:blockIndex:newContent")
-            handleUpdateGuidanceCommand(trimmedLine)
-        } else if trimmedLine == "reset" {
-            // Reset to first step
-            writeLog("Preset5: Received reset command", logLevel: .info)
-            currentStepIndex = 0
-        } else {
-            writeLog("Preset5: Unknown command received: \(trimmedLine)", logLevel: .debug)
-        }
-    }
+    // MARK: - Command Handlers (called by CommandRouter)
 
     /// Handle item-level status command from trigger file
     private func handleItemStatusCommand(itemId: String, status: String, message: String?) {
@@ -765,8 +674,10 @@ struct Preset5View: View {
         handleButton1()
     }
 
-    /// Save completion state to UserDefaults
+    /// Save completion state to UserDefaults (only when resumable mode is enabled)
     private func saveCompletionState() {
+        guard config?.resumable == true else { return }
+
         stateDefaults.set(true, forKey: "stepsCompleted")
         stateDefaults.set(Date(), forKey: "stepsCompletedAt")
         stateDefaults.set(currentStepIndex, forKey: "lastStepIndex")
@@ -875,9 +786,22 @@ struct Preset5View: View {
             return
         }
 
-        // parts[0] is stepId (unused — block updates are index-based)
-        guard let blockIndex = Int(parts[1]) else {
-            writeLog("Preset5: Invalid block index in update_guidance: \(parts[1])", logLevel: .error)
+        let stepId = parts[0]
+        let blockIdentifier = parts[1]
+
+        // Resolve target step: "_" means search all steps, otherwise match by ID
+        let targetContent: [InspectConfig.GuidanceContent]?
+        if stepId == "_" {
+            targetContent = allSteps.first(where: { step in
+                step.content?.contains(where: { $0.id == blockIdentifier }) == true
+            })?.content
+        } else {
+            targetContent = (allSteps.first(where: { $0.id == stepId }) ?? currentStep)?.content
+        }
+
+        guard let content = targetContent,
+              let blockIndex = InspectConfig.GuidanceContent.resolveBlockIndex(blockIdentifier, in: content) else {
+            writeLog("Preset5: Cannot resolve block '\(blockIdentifier)' in update_guidance", logLevel: .error)
             return
         }
 
@@ -904,14 +828,25 @@ struct Preset5View: View {
                 writeLog("Preset5: Updated guidance block \(blockIndex) label to '\(value)'", logLevel: .info)
             case "state":
                 state.state = value
+                // Also update statusBadgeOverrides keyed by block index AND original label for introStatusBadgeView
+                statusBadgeOverrides["block_\(blockIndex)"] = value
+                if let step = currentStep, let content = step.content, blockIndex < content.count {
+                    let block = content[blockIndex]
+                    let badgeKey = block.id ?? block.content ?? block.label ?? ""
+                    if !badgeKey.isEmpty {
+                        statusBadgeOverrides[badgeKey] = value
+                    }
+                }
                 writeLog("Preset5: Updated guidance block \(blockIndex) state to '\(value)'", logLevel: .info)
             case "actual":
                 state.actual = value
                 writeLog("Preset5: Updated guidance block \(blockIndex) actual to '\(value)'", logLevel: .info)
             case "progress":
                 if let progressValue = Double(value) {
-                    state.progress = progressValue
-                    writeLog("Preset5: Updated guidance block \(blockIndex) progress to \(progressValue)", logLevel: .info)
+                    // Auto-detect scale: values > 1.0 are treated as 0-100, otherwise 0.0-1.0
+                    let normalized = progressValue > 1.0 ? min(1.0, max(0.0, progressValue / 100.0)) : min(1.0, max(0.0, progressValue))
+                    state.progress = normalized
+                    writeLog("Preset5: Updated guidance block \(blockIndex) progress to \(normalized) (raw: \(value))", logLevel: .info)
                 }
             case "currentPhase":
                 if let phaseValue = Int(value) {
@@ -947,6 +882,83 @@ struct Preset5View: View {
         DispatchQueue.main.async {
             self.introStepMonitor.objectWillChange.send()
             self.dynamicContentUpdateCounter += 1
+        }
+    }
+
+    /// Process a batch update JSON payload. Resolves block keys (numeric index or block ID)
+    /// and applies updates via introStepMonitor.contentStates in batch.
+    ///
+    /// JSON format: `{"step":"device","updates":{"2":{"value":"SERIAL"},"name_badge":{"value":"MyMac"}}}`
+    private struct BatchUpdatePayload: Codable {
+        let step: String
+        let updates: [String: [String: String]]
+    }
+
+    private func processBatchUpdate(_ jsonString: String) {
+        guard let data = jsonString.data(using: .utf8),
+              let payload = try? JSONDecoder().decode(BatchUpdatePayload.self, from: data)
+        else {
+            writeLog("Preset5: batch_update: invalid JSON — \(jsonString.prefix(200))", logLevel: .error)
+            return
+        }
+
+        // Resolve the target step
+        let resolvedStep: InspectConfig.IntroStep?
+        if payload.step == "_" {
+            resolvedStep = payload.updates.keys.compactMap { key -> InspectConfig.IntroStep? in
+                guard Int(key) == nil else { return nil }
+                return allSteps.first { step in
+                    step.content?.contains { $0.id == key } == true
+                }
+            }.first ?? allSteps.first
+        } else {
+            resolvedStep = allSteps.first { $0.id == payload.step }
+        }
+
+        guard let step = resolvedStep, let content = step.content else {
+            writeLog("Preset5: batch_update: cannot resolve step '\(payload.step)'", logLevel: .error)
+            return
+        }
+
+        // Resolve block keys → numeric indices and apply updates
+        var updatedCount = 0
+        for (blockKey, properties) in payload.updates {
+            if let blockIndex = InspectConfig.GuidanceContent.resolveBlockIndex(blockKey, in: content) {
+                if introStepMonitor.contentStates[blockIndex] == nil {
+                    introStepMonitor.contentStates[blockIndex] = DynamicContentState()
+                }
+                if let state = introStepMonitor.contentStates[blockIndex] {
+                    for (property, value) in properties {
+                        switch property {
+                        case "label": state.label = value
+                        case "state": state.state = value
+                        case "actual": state.actual = value
+                        case "content": state.content = value
+                        case "visible": state.visible = value.lowercased() == "true" || value == "1"
+                        case "progress":
+                            if let v = Double(value) { state.progress = v }
+                        case "currentPhase":
+                            if let v = Int(value) { state.currentPhase = v }
+                        case "passed":
+                            if let v = Int(value) { state.passed = v }
+                        case "total":
+                            if let v = Int(value) { state.total = v }
+                        default: break
+                        }
+                    }
+                    updatedCount += 1
+                }
+            } else {
+                writeLog("Preset5: batch_update: cannot resolve block '\(blockKey)' in step '\(step.id)'", logLevel: .error)
+            }
+        }
+
+        if updatedCount > 0 {
+            DispatchQueue.main.async {
+                self.introStepMonitor.objectWillChange.send()
+                self.dynamicContentUpdateCounter += 1
+            }
+            writeLog("Preset5: batch_update: applied \(updatedCount) blocks to '\(step.id)'", logLevel: .info)
         }
     }
 
@@ -1111,75 +1123,145 @@ struct Preset5View: View {
             writeLog("Preset5: No plistSources configured, compliance service not started", logLevel: .info)
         }
 
-        // Start external command file monitoring (parity with Preset6)
-        setupCommandFileMonitoring()
+        // Start command routing and file monitoring via shared CommandRouter
+        setupCommandRouter()
 
         // Signal readiness to external launchers (ignitecli integration)
-        writeReadinessFile(config: config, triggerFilePath: triggerFilePath)
+        writeReadinessFile(config: config, triggerFilePath: triggerFilePath,
+                           preset: "5", itemCount: allSteps.count,
+                           itemIDs: allSteps.map { $0.id })
     }
 
-    // MARK: - Command File Monitoring (Parity with Preset6)
+    // MARK: - Command Router Setup
 
-    /// Set up file monitoring for external command triggers
-    /// Uses Timer-based polling for reliable cross-view state management
-    private func setupCommandFileMonitoring() {
-        // Create file if it doesn't exist
+    /// Wire the shared CommandRouter to Preset5's handlers, then start file monitoring.
+    private func setupCommandRouter() {
+        commandRouter.presetLabel = "Preset5"
+        commandRouter.acknowledgmentLogPath = "/var/tmp/dialog-ack.log"
+        commandRouter.itemCount = allSteps.count
+
+        // Navigation
+        commandRouter.onNavigateByID = { [self] stepId in navigateToStep(stepId: stepId) }
+        commandRouter.onNavigateByIndex = { [self] index in
+            if index >= 0, index < allSteps.count {
+                currentStepIndex = index
+                writeStepEvent("step_started", stepId: allSteps[index].id)
+            }
+        }
+        commandRouter.onNext = { [self] in goToNextStep() }
+        commandRouter.onPrev = { [self] in goToPrevStep() }
+        commandRouter.onReset = { [self] in
+            withAnimation(.spring()) {
+                currentStepIndex = 0
+                completedProcessingSteps.removeAll()
+                failedSteps.removeAll()
+                skippedSteps.removeAll()
+                completedNavigatedSteps.removeAll()
+                processingState = .idle
+                dynamicContentUpdateCounter = 0
+            }
+            // Clear dynamic state (messages, progress, display data)
+            dynamicState.clearAllState()
+            // Clear status badge overrides
+            statusBadgeOverrides.removeAll()
+            phaseTrackerOverride = nil
+            iconOverride = nil
+            heroImageOverrides.removeAll()
+            iconBasePathOverride = nil
+            // Reset state persistence
+            resetState()
+            writeLog("Preset5: Full reset — all progress and overrides cleared", logLevel: .info)
+        }
+
+        // Completion
+        commandRouter.onComplete = { [self] stepId in
+            if !completedProcessingSteps.contains(stepId) {
+                completedProcessingSteps.insert(stepId)
+                writeStepEvent("step_completed", stepId: stepId)
+            }
+        }
+        commandRouter.onSuccess = { [self] stepId, message in
+            handleCompletionTrigger(stepId: stepId, result: .success(message: message))
+        }
+        commandRouter.onFailure = { [self] stepId, reason in
+            handleCompletionTrigger(stepId: stepId, result: .failure(message: reason))
+        }
+        commandRouter.onWarning = { [self] stepId, message in
+            handleCompletionTrigger(stepId: stepId, result: .warning(message: message))
+        }
+
+        // Content updates
+        commandRouter.onUpdateGuidance = { [self] command in
+            handleUpdateGuidanceCommand(command)
+        }
+        commandRouter.onUpdateMessage = { [self] stepId, message in
+            dynamicState.updateMessage(stepId: stepId, message: message)
+        }
+        commandRouter.onProgress = { [self] stepId, pct in
+            dynamicState.updateProgress(stepId: stepId, percentage: pct)
+        }
+        commandRouter.onBatchUpdate = { [self] jsonString in
+            processBatchUpdate(jsonString)
+        }
+        commandRouter.onDisplayData = { [self] stepId, key, value, color in
+            dynamicState.updateDisplayData(stepId: stepId, key: key, value: value, color: color)
+        }
+
+        // Validation
+        commandRouter.onRecheck = { [self] targetItemId in
+            if let itemId = targetItemId {
+                inspectState.recheckPlistMonitorsForItem(itemId) { itemId, blockIndex, property, newValue in
+                    dynamicState.updateGuidanceProperty(stepId: itemId, blockIndex: blockIndex, property: property, value: newValue)
+                }
+            } else {
+                inspectState.recheckAllPlistMonitors { itemId, blockIndex, property, newValue in
+                    dynamicState.updateGuidanceProperty(stepId: itemId, blockIndex: blockIndex, property: property, value: newValue)
+                }
+            }
+        }
+
+        // Selections
+        commandRouter.onSelect = { [self] key, values in
+            withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                gridSelections[key] = Set(values)
+            }
+            writeSelectionOutput(key: key, selections: values)
+            // Also write to preferences if there's a step with this gridSelectionKey
+            if let step = allSteps.first(where: { $0.gridSelectionKey == key }),
+               let preferenceKey = step.gridPreferenceKey ?? step.gridSelectionKey {
+                let isMultiSelect = (step.gridSelectionMode ?? "single") == "multiple"
+                let selectedValue = isMultiSelect ? values.sorted().joined(separator: ",") : (values.first ?? "")
+                preferencesService?.setValue(selectedValue, forKey: preferenceKey)
+            }
+            writeLog("Preset5: External select '\(key)' = \(values)", logLevel: .info)
+        }
+
+        // Overrides
+        commandRouter.onSetCommand = { [self] targetType, value, extra in
+            handleSetCommand(targetType: targetType, value: value, extra: extra)
+        }
+        commandRouter.onItemStatus = { [self] itemId, status, message in
+            handleItemStatusCommand(itemId: itemId, status: status, message: message)
+        }
+
+        // Start file monitoring (hosted on CommandRouter class for stable lifecycle)
         if !FileManager.default.fileExists(atPath: triggerFilePath) {
             FileManager.default.createFile(atPath: triggerFilePath, contents: nil, attributes: nil)
         }
+        commandRouter.startMonitoring(
+            triggerFilePath: triggerFilePath,
+            notificationHandler: { [self] command in
+                writeLog("Preset5: Received notification command: \(command)", logLevel: .info)
+            }
+        )
 
-        // Skip past any stale content from a previous run
-        if let existing = try? String(contentsOfFile: triggerFilePath, encoding: .utf8) {
-            lastProcessedLineCount = existing.components(separatedBy: .newlines).count
-        }
-
-        // Use Timer for polling (more reliable than DispatchSource with SwiftUI @State)
-        // Note: Capture list removed - struct views are value types, no retain cycle risk
-        commandFileMonitorTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [self] _ in
-            self.checkForExternalTrigger()
-        }
-
-        // Output trigger file info for scripts/inspector to discover
-        print("[SWIFTDIALOG] trigger_file: \(triggerFilePath)")
         print("[SWIFTDIALOG] trigger_mode: \(triggerMode)")
         print("[PRESET11_PROCESSING] command_file_monitoring_started: \(triggerFilePath)")
-        writeLog("Preset5: Command file monitoring started at \(triggerFilePath) (mode: \(triggerMode), polling every 0.5s)", logLevel: .info)
-    }
-
-    /// Check for external trigger commands in the file
-    /// Uses line-offset tracking: reads all lines, processes only new ones, never clears the file.
-    /// This eliminates the read-then-clear race condition where commands appended between
-    /// reading and clearing were destroyed.
-    private func checkForExternalTrigger() {
-        guard let content = try? String(contentsOfFile: triggerFilePath, encoding: .utf8) else {
-            return
-        }
-
-        let lines = content.components(separatedBy: .newlines)
-        let totalLines = lines.count
-
-        guard totalLines > lastProcessedLineCount else {
-            return
-        }
-
-        // Process only lines we haven't seen yet
-        let newLines = Array(lines.dropFirst(lastProcessedLineCount))
-        for line in newLines {
-            let trimmed = line.trimmingCharacters(in: .whitespaces)
-            guard !trimmed.isEmpty else { continue }
-
-            print("[PRESET11_PROCESSING] trigger_received: \(trimmed)")
-            writeLog("Preset5: Received trigger command: \(trimmed)", logLevel: .info)
-            processPresetCommand(trimmed)
-        }
-
-        lastProcessedLineCount = totalLines
     }
 
     /// Stop command file monitoring
     private func stopCommandFileMonitoring() {
-        commandFileMonitorTimer?.invalidate()
-        commandFileMonitorTimer = nil
+        commandRouter.stopMonitoring()
     }
 
     /// Initialize preferences service from config
@@ -2836,68 +2918,66 @@ struct Preset5View: View {
         processingState = .countdown(stepId: step.id, remaining: duration, waitElapsed: 0)
 
         processingTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [self] timer in
-            DispatchQueue.main.async {
-                // Always increment wait elapsed for override escalation
-                self.processingWaitElapsed += 1
+            // Always increment wait elapsed for override escalation
+            self.processingWaitElapsed += 1
 
-                if case .countdown(let stepId, let remaining, let elapsed) = self.processingState, remaining > 0 {
-                    // Check if countdown is about to complete (remaining == 1)
-                    if remaining == 1 {
-                        // Output countdown_complete event for external scripts
-                        print("[PRESET11_PROCESSING] countdown_complete: \(stepId)")
-                        writeLog("Preset5: Countdown complete for step '\(stepId)'", logLevel: .info)
+            if case .countdown(let stepId, let remaining, let elapsed) = self.processingState, remaining > 0 {
+                // Check if countdown is about to complete (remaining == 1)
+                if remaining == 1 {
+                    // Output countdown_complete event for external scripts
+                    print("[PRESET11_PROCESSING] countdown_complete: \(stepId)")
+                    writeLog("Preset5: Countdown complete for step '\(stepId)'", logLevel: .info)
 
-                        // Determine next state based on waitForExternalTrigger
-                        let waitForTrigger = step.waitForExternalTrigger == true
-                        let isProgressiveMode = step.processingMode == "progressive"
+                    // Determine next state based on waitForExternalTrigger
+                    let waitForTrigger = step.waitForExternalTrigger == true
+                    let isProgressiveMode = step.processingMode == "progressive"
 
-                        if waitForTrigger || isProgressiveMode {
-                            // Transition to waiting state - wait for external trigger
-                            timer.invalidate()
-                            self.processingTimer = nil
-                            self.processingCountdown = 0
-                            self.processingState = .waiting(stepId: stepId, waitElapsed: 0)
-                            writeLog("Preset5: Step '\(stepId)' transitioned to waiting state (waitForExternalTrigger=\(waitForTrigger), progressive=\(isProgressiveMode))", logLevel: .info)
-                            // Restart timer for waiting state
-                            self.startWaitingTimer(for: step, stepIndex: stepIndex)
+                    if waitForTrigger || isProgressiveMode {
+                        // Transition to waiting state - wait for external trigger
+                        timer.invalidate()
+                        self.processingTimer = nil
+                        self.processingCountdown = 0
+                        self.processingState = .waiting(stepId: stepId, waitElapsed: 0)
+                        writeLog("Preset5: Step '\(stepId)' transitioned to waiting state (waitForExternalTrigger=\(waitForTrigger), progressive=\(isProgressiveMode))", logLevel: .info)
+                        // Restart timer for waiting state
+                        self.startWaitingTimer(for: step, stepIndex: stepIndex)
+                    } else {
+                        // Simple mode without waitForExternalTrigger - complete immediately
+                        timer.invalidate()
+                        self.processingTimer = nil
+                        self.processingCountdown = 0
+                        self.processingState = .idle
+
+                        // Check autoResult setting (for forced failure demos)
+                        let autoResult = step.autoResult ?? "success"
+                        if autoResult == "failure" {
+                            self.markProcessingCompleted(step: step, result: .failure(reason: step.failureMessage ?? "Operation failed"))
                         } else {
-                            // Simple mode without waitForExternalTrigger - complete immediately
-                            timer.invalidate()
-                            self.processingTimer = nil
-                            self.processingCountdown = 0
-                            self.processingState = .idle
+                            self.markProcessingCompleted(step: step, result: .success)
+                        }
 
-                            // Check autoResult setting (for forced failure demos)
-                            let autoResult = step.autoResult ?? "success"
-                            if autoResult == "failure" {
-                                self.markProcessingCompleted(step: step, result: .failure(reason: step.failureMessage ?? "Operation failed"))
-                            } else {
-                                self.markProcessingCompleted(step: step, result: .success)
-                            }
-
-                            // Auto-advance only if explicitly requested
-                            if step.autoAdvance == true {
-                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
-                                    self.goToNextStep()
-                                }
+                        // Auto-advance only if explicitly requested
+                        if step.autoAdvance == true {
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
+                                self.goToNextStep()
                             }
                         }
-                    } else {
-                        // Continue countdown
-                        self.processingCountdown = remaining - 1
-                        self.processingState = .countdown(stepId: stepId, remaining: remaining - 1, waitElapsed: elapsed + 1)
                     }
-                } else if case .waiting(let stepId, let waitElapsed) = self.processingState {
-                    // In waiting state - keep incrementing wait elapsed
-                    self.processingState = .waiting(stepId: stepId, waitElapsed: waitElapsed + 1)
                 } else {
-                    // Fallback: countdown finished unexpectedly
-                    timer.invalidate()
-                    self.processingTimer = nil
-                    self.processingCountdown = 0
-                    self.processingState = .idle
-                    self.markProcessingCompleted(step: step, result: .success)
+                    // Continue countdown
+                    self.processingCountdown = remaining - 1
+                    self.processingState = .countdown(stepId: stepId, remaining: remaining - 1, waitElapsed: elapsed + 1)
                 }
+            } else if case .waiting(let stepId, let waitElapsed) = self.processingState {
+                // In waiting state - keep incrementing wait elapsed
+                self.processingState = .waiting(stepId: stepId, waitElapsed: waitElapsed + 1)
+            } else {
+                // Fallback: countdown finished unexpectedly
+                timer.invalidate()
+                self.processingTimer = nil
+                self.processingCountdown = 0
+                self.processingState = .idle
+                self.markProcessingCompleted(step: step, result: .success)
             }
         }
     }
@@ -2980,11 +3060,9 @@ struct Preset5View: View {
     /// Starts a timer for waiting state (after countdown completes in progressive mode)
     private func startWaitingTimer(for step: InspectConfig.IntroStep, stepIndex: Int) {
         processingTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [self] timer in
-            DispatchQueue.main.async {
-                self.processingWaitElapsed += 1
-                if case .waiting(let stepId, let waitElapsed) = self.processingState {
-                    self.processingState = .waiting(stepId: stepId, waitElapsed: waitElapsed + 1)
-                }
+            self.processingWaitElapsed += 1
+            if case .waiting(let stepId, let waitElapsed) = self.processingState {
+                self.processingState = .waiting(stepId: stepId, waitElapsed: waitElapsed + 1)
             }
         }
     }
@@ -3718,6 +3796,7 @@ struct Preset5View: View {
         if let actual = ds.actual, !actual.isEmpty { b.value = actual }
         if let label = ds.label, !label.isEmpty { b.label = label }
         if let content = ds.content, !content.isEmpty { b.content = content }
+        if let state = ds.state, !state.isEmpty { b.state = state }
         return b
     }
 
@@ -3917,8 +3996,8 @@ struct Preset5View: View {
         let baseLabel = block.content ?? block.label ?? ""
         let label = dynamicState?.label ?? baseLabel
         let blockId = block.id ?? baseLabel  // Use id if available, otherwise label
-        // Check for override by id first, then by label, then dynamic state, then config state
-        let effectiveState = dynamicState?.state ?? statusBadgeOverrides[blockId] ?? statusBadgeOverrides[baseLabel] ?? block.state ?? "pending"
+        // Check for override by id, by block index, by label, then dynamic state, then config state
+        let effectiveState = dynamicState?.state ?? statusBadgeOverrides[blockId] ?? statusBadgeOverrides["block_\(blockIndex)"] ?? statusBadgeOverrides[baseLabel] ?? block.state ?? "pending"
         let autoColor = block.autoColor ?? false
 
         let (autoIcon, color) = statusBadgeStyle(for: effectiveState, autoColor: autoColor)
@@ -4610,6 +4689,8 @@ struct Preset5View: View {
         writeLog("Preset5 Output: \(output)", logLevel: .info)
         // Also write to stdout for script consumption
         print(output)
+        // Post DistributedNotification for external tools
+        DialogNotifications.postStepChange(stepId: stepId, action: action)
     }
 
     /// Write user selection output
@@ -4618,6 +4699,8 @@ struct Preset5View: View {
         let output = "selection: \(key) = \(selectionsString)"
         writeLog("Preset5 Output: \(output)", logLevel: .info)
         print(output)
+        // Post DistributedNotification for external tools
+        DialogNotifications.postSelection(key: key, values: selections)
     }
 
     /// Write final summary output when dialog closes
@@ -4764,7 +4847,10 @@ struct Preset5View: View {
                 formValues: formValues, selections: gridSelections.mapValues { $0 },
                 selectedBrand: selectedBrandId
             )
-            cleanupReadinessFile(config: config, triggerFilePath: triggerFilePath)
+            cleanupReadinessFile(config: config, triggerFilePath: triggerFilePath,
+                                 exitCode: 0, completedCount: allCompleted.count,
+                                 failedCount: failedSteps.count,
+                                 totalSteps: allSteps.count)
 
             // Done - close dialog
             quitDialog(exitCode: 0)
@@ -4782,7 +4868,10 @@ struct Preset5View: View {
             formValues: formValues, selections: gridSelections.mapValues { $0 },
             selectedBrand: selectedBrandId
         )
-        cleanupReadinessFile(config: config, triggerFilePath: triggerFilePath)
+        cleanupReadinessFile(config: config, triggerFilePath: triggerFilePath,
+                             exitCode: 2, completedCount: allCompleted.count,
+                             failedCount: failedSteps.count,
+                             totalSteps: allSteps.count)
 
         // Back - cancel
         quitDialog(exitCode: 2)

@@ -58,13 +58,11 @@ struct Preset6View: View, InspectLayoutProtocol {
     // MDM branding
     @State private var mdmOverrides: MDMBrandingOverrides?
 
-    // File monitoring
-    @State private var fileMonitorSource: DispatchSourceFileSystemObject?
-    @State private var commandFileMonitorTimer: Timer?
-    @State private var lastProcessedLineCount: Int = 0  // Line-offset tracking for trigger file (never clear, only advance)
+    // Command routing and file monitoring (hosted on @StateObject for class lifecycle)
+    @StateObject private var commandRouter = CommandRouter()
 
     // Auto-navigation
-    @State private var autoNavigationWorkItem: DispatchWorkItem?
+    @State private var autoNavigationTask: Task<Void, Never>?
 
     // Overlay state
     @State private var showDetailOverlay: Bool = false
@@ -327,10 +325,12 @@ struct Preset6View: View, InspectLayoutProtocol {
             }
             writeLog("Preset6: View appearing, loading state...", logLevel: .info)
             loadPersistedState()
-            setupFileMonitoring()
+            setupCommandRouter()
             startComplianceMonitoring()
             startIntroStepMonitoring()
-            writeReadinessFile(config: inspectState.config, triggerFilePath: triggerFilePath)
+            writeReadinessFile(config: inspectState.config, triggerFilePath: triggerFilePath,
+                               preset: "6", itemCount: inspectState.items.count,
+                               itemIDs: inspectState.items.map { $0.id })
             writeInteractionLog("launched", step: "preset6")
             logPreset6Event("view_appeared", details: [
                 "totalSteps": inspectState.items.count,
@@ -347,8 +347,8 @@ struct Preset6View: View, InspectLayoutProtocol {
         }
         .onChange(of: currentStep) { oldStep, newStep in
             if oldStep != newStep {
-                autoNavigationWorkItem?.cancel()
-                autoNavigationWorkItem = nil
+                autoNavigationTask?.cancel()
+                autoNavigationTask = nil
             }
         }
         .sheet(isPresented: $showOverrideDialog) {
@@ -381,7 +381,7 @@ struct Preset6View: View, InspectLayoutProtocol {
         )
         .onDisappear {
             savePersistedState()
-            stopFileMonitoring()
+            stopFileMonitoring()  // Also calls DialogNotifications.stopObserving()
             processingTimer?.invalidate()
             processingTimer = nil
         }
@@ -511,10 +511,9 @@ struct Preset6View: View, InspectLayoutProtocol {
                                             selectedItemForDetail = currentItem
                                             showItemDetailOverlay = true
                                         } : nil,
-                                        accentColor: highlightColor
+                                        accentColor: highlightColor,
+                                        refreshToken: dynamicState.updateGeneration
                                     )
-                                    // Force re-render when dynamic properties change for this item
-                                    .id("guidance-\(currentItem.id)-\(dynamicState.dynamicGuidanceProperties[currentItem.id]?.hashValue ?? 0)")
                                 } else {
                                     // Fallback for items without guidanceContent
                                     fallbackContentView(for: currentItem)
@@ -1098,6 +1097,8 @@ struct Preset6View: View, InspectLayoutProtocol {
             return
         }
 
+        DialogNotifications.postButtonClick(stepId: currentItem.id, label: "Continue", action: "continue")
+
         // Check if this is a processing step that needs to start
         if currentItem.stepType == "processing" && !completedSteps.contains(currentItem.id) {
             startProcessing(for: currentItem)
@@ -1130,6 +1131,10 @@ struct Preset6View: View, InspectLayoutProtocol {
             "to": currentStep,
             "reason": "navigate_next"
         ])
+
+        if let nextItem = inspectState.items[safe: currentStep] {
+            DialogNotifications.postStepChange(stepId: nextItem.id, action: "navigate_next")
+        }
 
         // Restart plist monitoring for new step's monitors
         restartIntroStepMonitoring()
@@ -1227,6 +1232,7 @@ struct Preset6View: View, InspectLayoutProtocol {
             "stepId": item.id,
             "stepIndex": inspectState.items.firstIndex(where: { $0.id == item.id }) ?? -1
         ])
+        DialogNotifications.postStepChange(stepId: item.id, action: "completed")
     }
 
     /// Reset all progress (triggered by "reset" command or Option-click)
@@ -1252,10 +1258,9 @@ struct Preset6View: View, InspectLayoutProtocol {
         // Clear persistence
         persistenceService.clearState()
 
-        // Reset trigger file line offset (truncate file and reset counter together)
+        // Truncate trigger file on reset
         if FileManager.default.fileExists(atPath: triggerFilePath) {
             try? "".write(toFile: triggerFilePath, atomically: false, encoding: .utf8)
-            lastProcessedLineCount = 0
         }
 
         writeLog("Preset6: All progress reset", logLevel: .info)
@@ -1273,13 +1278,30 @@ struct Preset6View: View, InspectLayoutProtocol {
 
         // Write structured result file and clean up readiness signal
         let stepInfos = inspectState.items.map { ResultStepInfo(id: $0.id, stepType: $0.stepType ?? "info") }
+
+        // Collect form values from all steps (flatten stepId.fieldId → value)
+        var allFormValues: [String: String] = [:]
+        for (itemId, formState) in inspectState.guidanceFormInputs {
+            for (fieldId, value) in formState.dropdowns { allFormValues["\(itemId).\(fieldId)"] = value }
+            for (fieldId, value) in formState.radios { allFormValues["\(itemId).\(fieldId)"] = value }
+            for (fieldId, value) in formState.textfields { allFormValues["\(itemId).\(fieldId)"] = value }
+            for (fieldId, value) in formState.toggles { allFormValues["\(itemId).\(fieldId)"] = String(value) }
+            for (fieldId, value) in formState.sliders { allFormValues["\(itemId).\(fieldId)"] = String(value) }
+            for (fieldId, value) in formState.checkboxes { allFormValues["\(itemId).\(fieldId)"] = String(value) }
+        }
+
         writeResultFile(
             config: inspectState.config, exitCode: Int(appDefaults.exit0.code),
             steps: stepInfos, completedSteps: completedSteps,
             failedSteps: failedSteps, skippedSteps: skippedSteps,
-            currentStepIndex: currentStep
+            currentStepIndex: currentStep,
+            formValues: allFormValues
         )
-        cleanupReadinessFile(config: inspectState.config, triggerFilePath: triggerFilePath)
+        cleanupReadinessFile(config: inspectState.config, triggerFilePath: triggerFilePath,
+                             exitCode: Int(appDefaults.exit0.code),
+                             completedCount: completedSteps.count,
+                             failedCount: failedSteps.count,
+                             totalSteps: inspectState.items.count)
 
         writeLog("Preset6: Completing with exit code 0", logLevel: .info)
         quitDialog(exitCode: appDefaults.exit0.code)
@@ -1308,31 +1330,29 @@ struct Preset6View: View, InspectLayoutProtocol {
         ])
 
         processingTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [self] timer in
-            DispatchQueue.main.async {
-                if case .countdown(let stepId, let remaining, let elapsed) = self.processingState {
-                    if remaining <= 1 {
-                        timer.invalidate()
-                        self.processingTimer = nil
+            if case .countdown(let stepId, let remaining, let elapsed) = self.processingState {
+                if remaining <= 1 {
+                    timer.invalidate()
+                    self.processingTimer = nil
 
-                        // Determine next state
-                        let waitForTrigger = item.waitForExternalTrigger == true
+                    // Determine next state
+                    let waitForTrigger = item.waitForExternalTrigger == true
 
-                        if waitForTrigger {
-                            self.processingState = .waiting(stepId: stepId, waitElapsed: 0)
-                            self.startWaitingTimer(for: item)
-                        } else {
-                            // Complete with auto-result
-                            let autoResult = item.autoResult ?? "success"
-                            if autoResult == "failure" {
-                                self.handleCompletionTrigger(stepId: stepId, result: .failure(message: item.failureMessage))
-                            } else {
-                                self.handleCompletionTrigger(stepId: stepId, result: .success(message: item.successMessage))
-                            }
-                        }
+                    if waitForTrigger {
+                        self.processingState = .waiting(stepId: stepId, waitElapsed: 0)
+                        self.startWaitingTimer(for: item)
                     } else {
-                        self.processingCountdown = remaining - 1
-                        self.processingState = .countdown(stepId: stepId, remaining: remaining - 1, waitElapsed: elapsed + 1)
+                        // Complete with auto-result
+                        let autoResult = item.autoResult ?? "success"
+                        if autoResult == "failure" {
+                            self.handleCompletionTrigger(stepId: stepId, result: .failure(message: item.failureMessage))
+                        } else {
+                            self.handleCompletionTrigger(stepId: stepId, result: .success(message: item.successMessage))
+                        }
                     }
+                } else {
+                    self.processingCountdown = remaining - 1
+                    self.processingState = .countdown(stepId: stepId, remaining: remaining - 1, waitElapsed: elapsed + 1)
                 }
             }
         }
@@ -1349,15 +1369,13 @@ struct Preset6View: View, InspectLayoutProtocol {
         // Note: Using [self] capture (not weak) because SwiftUI views are value types
         // and the @State property will persist across view recreations
         let timer = Timer(timeInterval: 1.0, repeats: true) { [self] _ in
-            DispatchQueue.main.async {
-                if case .waiting(let stepId, let waitElapsed) = self.processingState {
-                    let newElapsed = waitElapsed + 1
-                    self.processingState = .waiting(stepId: stepId, waitElapsed: newElapsed)
+            if case .waiting(let stepId, let waitElapsed) = self.processingState {
+                let newElapsed = waitElapsed + 1
+                self.processingState = .waiting(stepId: stepId, waitElapsed: newElapsed)
 
-                    // Log at key thresholds
-                    if newElapsed == 10 || newElapsed == 30 || newElapsed == 60 || newElapsed % 60 == 0 {
-                        writeLog("Preset6: Waiting timer at \(newElapsed)s for step '\(stepId)'", logLevel: .debug)
-                    }
+                // Log at key thresholds
+                if newElapsed == 10 || newElapsed == 30 || newElapsed == 60 || newElapsed % 60 == 0 {
+                    writeLog("Preset6: Waiting timer at \(newElapsed)s for step '\(stepId)'", logLevel: .debug)
                 }
             }
         }
@@ -1373,8 +1391,9 @@ struct Preset6View: View, InspectLayoutProtocol {
         processingTimer = nil
         processingState = .idle
 
-        // Update state
+        // Update state — both local and shared (triggers .onChange → handleExternalCompletions with delay)
         completedSteps.insert(stepId)
+        inspectState.completedItems.insert(stepId)
 
         switch result {
         case .success(let message):
@@ -1463,12 +1482,13 @@ struct Preset6View: View, InspectLayoutProtocol {
             }
 
             if shouldAutoNavigate {
-                autoNavigationWorkItem?.cancel()
-                let workItem = DispatchWorkItem {
+                autoNavigationTask?.cancel()
+                let delay = inspectState.config?.autoAdvanceDelay ?? 0.5
+                autoNavigationTask = Task { @MainActor in
+                    try? await Task.sleep(for: .seconds(delay))
+                    guard !Task.isCancelled else { return }
                     navigateToNextStep()
                 }
-                autoNavigationWorkItem = workItem
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.8, execute: workItem)
             }
         }
     }
@@ -1510,269 +1530,363 @@ struct Preset6View: View, InspectLayoutProtocol {
         return state
     }
 
-    // MARK: - File Monitoring
+    // MARK: - Command Router Setup
 
-    /// Zero-latency file monitoring using DispatchSource
-    /// Replaces timer-based polling (500ms latency) with instant file change detection
-    private func setupFileMonitoring() {
+    /// Wire the shared CommandRouter to Preset6's handlers, then start file monitoring.
+    private func setupCommandRouter() {
+        commandRouter.presetLabel = "Preset6"
+        commandRouter.acknowledgmentLogPath = acknowledgmentLogPath
+        commandRouter.itemCount = inspectState.items.count
+
+        // Navigation
+        commandRouter.onNavigateByID = { [self] stepId in
+            if let index = inspectState.items.firstIndex(where: { $0.id == stepId }) {
+                handleStepSelection(index)
+                writeInteractionLog("navigate", step: stepId)
+            }
+        }
+        commandRouter.onNavigateByIndex = { [self] index in
+            autoNavigationTask?.cancel()
+            autoNavigationTask = nil
+            withAnimation(.spring()) { currentStep = index }
+        }
+        commandRouter.onNext = { [self] in navigateToNextStep() }
+        commandRouter.onPrev = { [self] in goToPreviousStep() }
+        commandRouter.onReset = { [self] in resetSteps() }
+
+        // Completion
+        commandRouter.onComplete = { [self] stepId in
+            if !completedSteps.contains(stepId),
+               inspectState.items.contains(where: { $0.id == stepId }) {
+                withAnimation(.spring()) {
+                    completedSteps.insert(stepId)
+                    inspectState.completedItems.insert(stepId)
+                }
+            }
+        }
+        commandRouter.onSuccess = { [self] stepId, message in
+            handleCompletionTrigger(stepId: stepId, result: .success(message: message))
+        }
+        commandRouter.onFailure = { [self] stepId, reason in
+            handleCompletionTrigger(stepId: stepId, result: .failure(message: reason))
+        }
+        commandRouter.onWarning = { [self] stepId, message in
+            handleCompletionTrigger(stepId: stepId, result: .warning(message: message))
+        }
+
+        // Content updates
+        commandRouter.onUpdateGuidance = { [self] command in
+            handleUpdateGuidanceCommand(command)
+        }
+        commandRouter.onUpdateMessage = { [self] stepId, message in
+            dynamicState.updateMessage(stepId: stepId, message: message)
+        }
+        commandRouter.onProgress = { [self] stepId, pct in
+            dynamicState.updateProgress(stepId: stepId, percentage: pct)
+        }
+        commandRouter.onBatchUpdate = { [self] jsonString in
+            processBatchUpdate(jsonString)
+        }
+        commandRouter.onDisplayData = { [self] stepId, key, value, color in
+            dynamicState.updateDisplayData(stepId: stepId, key: key, value: value, color: color)
+            logPreset6Event("display_data_update", details: ["stepId": stepId, "key": key, "value": value])
+        }
+
+        // Validation
+        commandRouter.onRecheck = { [self] targetItemId in
+            if let itemId = targetItemId {
+                inspectState.recheckPlistMonitorsForItem(itemId) { itemId, blockIndex, property, newValue in
+                    dynamicState.updateGuidanceProperty(stepId: itemId, blockIndex: blockIndex, property: property, value: newValue)
+                }
+            } else {
+                inspectState.recheckAllPlistMonitors { itemId, blockIndex, property, newValue in
+                    dynamicState.updateGuidanceProperty(stepId: itemId, blockIndex: blockIndex, property: property, value: newValue)
+                }
+            }
+        }
+
+        // Selections
+        commandRouter.onSelect = { [self] key, values in
+            // Update form state (dropdowns/radios) for the item that hosts this selection key
+            if let item = inspectState.items.first(where: { item in
+                item.guidanceContent?.contains { $0.id == key } ?? false
+            }) {
+                var formState = inspectState.guidanceFormInputs[item.id] ?? GuidanceFormInputState()
+                if let value = values.first {
+                    formState.dropdowns[key] = value
+                    formState.radios[key] = value
+                }
+                inspectState.guidanceFormInputs[item.id] = formState
+            }
+            // Post selection event for external observers
+            DialogNotifications.postSelection(key: key, values: values)
+            // Persist to interaction plist so osquery/Fleet can read it immediately
+            writeInteractionLog("selection:\(key):\(values.joined(separator: ","))", step: "external")
+            writeLog("Preset6: External select '\(key)' = \(values)", logLevel: .info)
+        }
+
+        // Overrides
+        commandRouter.onSetCommand = { [self] targetType, value, extra in
+            handleSetCommand(targetType: targetType, value: value, extra: extra)
+        }
+        commandRouter.onItemStatus = { [self] itemId, status, message in
+            handleItemStatusCommand(itemId: itemId, status: status, message: message)
+        }
+        commandRouter.onListItem = { [self] remainder in
+            handleListItemCommand(remainder)
+        }
+
+        // Start file monitoring inline (same pattern as original — keeps @State alive)
+        startFileMonitoring()
+
+        print("[SWIFTDIALOG] trigger_mode: \(triggerMode)")
+    }
+
+    /// Set up file monitoring using CommandRouter's built-in TriggerFileMonitor.
+    /// Uses @StateObject CommandRouter to host the monitor (class lifecycle, not struct copy).
+    private func startFileMonitoring() {
         // Create trigger file if needed
         if !FileManager.default.fileExists(atPath: triggerFilePath) {
             FileManager.default.createFile(atPath: triggerFilePath, contents: nil, attributes: nil)
         }
 
-        // Skip past any stale content from a previous run
-        if let existing = try? String(contentsOfFile: triggerFilePath, encoding: .utf8) {
-            lastProcessedLineCount = existing.components(separatedBy: .newlines).count
+        // Use CommandRouter to host monitoring (class-based, survives struct copies)
+        commandRouter.startMonitoring(
+            triggerFilePath: triggerFilePath,
+            notificationHandler: { [self] command in
+                writeLog("Preset6: Received notification command: \(command)", logLevel: .info)
+            }
+        )
+
+        print("[SWIFTDIALOG] trigger_file: \(triggerFilePath)")
+        print("[SWIFTDIALOG] distributed_notifications: enabled")
+        writeLog("Preset6: File monitoring started at \(triggerFilePath)", logLevel: .info)
+    }
+
+    /// Handle update_guidance command (P6 implementation — uses dynamicState/items)
+    private func handleUpdateGuidanceCommand(_ command: String) {
+        let parts = command.dropFirst(16).split(separator: ":", maxSplits: 2)
+        guard parts.count == 3 else { return }
+
+        let stepId = String(parts[0])
+        let blockIdentifier = String(parts[1])
+        let valueString = String(parts[2])
+
+        let resolvedItem: InspectConfig.ItemConfig?
+        if stepId == "_" {
+            resolvedItem = inspectState.items.first(where: { item in
+                item.guidanceContent?.contains(where: { $0.id == blockIdentifier }) == true
+            })
+        } else {
+            resolvedItem = inspectState.items.first(where: { $0.id == stepId })
         }
 
-        // Open file descriptor
-        let fileDescriptor = open(triggerFilePath, O_EVTONLY)
-        guard fileDescriptor >= 0 else {
-            writeLog("Preset6: Failed to open trigger file for monitoring", logLevel: .error)
+        guard let item = resolvedItem,
+              let content = item.guidanceContent,
+              let blockIndex = InspectConfig.GuidanceContent.resolveBlockIndex(blockIdentifier, in: content) else {
             return
         }
 
-        // Create dispatch source to monitor file changes
-        let source = DispatchSource.makeFileSystemObjectSource(
-            fileDescriptor: fileDescriptor,
-            eventMask: [.write, .delete, .rename],
-            queue: DispatchQueue.main
-        )
+        let resolvedStepId = item.id
 
-        // Set event handler
-        source.setEventHandler { [self] in
-            checkForExternalTrigger()
+        if valueString.contains("=") {
+            let propParts = valueString.split(separator: "=", maxSplits: 1)
+            if propParts.count == 2 {
+                let property = String(propParts[0])
+                let value = String(propParts[1])
+                dynamicState.updateGuidanceProperty(stepId: resolvedStepId, blockIndex: blockIndex, property: property, value: value)
+                logPreset6Event("guidance_property_update", details: ["stepId": resolvedStepId, "index": blockIndex, "property": property, "value": value])
+            }
+        } else {
+            dynamicState.updateGuidanceContent(stepId: resolvedStepId, blockIndex: blockIndex, content: valueString)
+            logPreset6Event("guidance_content_update", details: ["stepId": resolvedStepId, "index": blockIndex, "content": valueString])
         }
-
-        // Set cancellation handler to close file descriptor
-        source.setCancelHandler {
-            close(fileDescriptor)
-        }
-
-        // Activate the source
-        source.resume()
-
-        // Store reference
-        fileMonitorSource = source
-
-        print("[SWIFTDIALOG] trigger_file: \(triggerFilePath)")
-        print("[SWIFTDIALOG] trigger_mode: \(triggerMode)")
-        writeLog("Preset6: File monitoring started with DispatchSource at \(triggerFilePath) (mode: \(triggerMode), zero-latency)", logLevel: .info)
     }
 
-    /// Uses line-offset tracking: reads all lines, processes only new ones, never clears the file.
-    /// This eliminates the read-then-clear race where commands appended between read and clear were lost.
-    private func checkForExternalTrigger() {
-        guard let content = try? String(contentsOfFile: triggerFilePath, encoding: .utf8) else { return }
+    /// Handle listitem: command (format: listitem:index:X,status:icon)
+    private func handleListItemCommand(_ remainder: String) {
+        let components = remainder.components(separatedBy: ",")
+        var itemIndex: Int?
+        var statusIcon: String?
 
-        let lines = content.components(separatedBy: .newlines)
-        let totalLines = lines.count
-
-        guard totalLines > lastProcessedLineCount else { return }
-
-        let newLines = Array(lines.dropFirst(lastProcessedLineCount))
-        for line in newLines {
-            let trimmed = line.trimmingCharacters(in: .whitespaces)
-            guard !trimmed.isEmpty else { continue }
-
-            writeLog("Preset6: Received trigger command: \(trimmed)", logLevel: .info)
-            processExternalCommands(trimmed)
+        for component in components {
+            let compTrimmed = component.trimmingCharacters(in: .whitespaces)
+            if compTrimmed.hasPrefix("index:") {
+                itemIndex = Int(compTrimmed.dropFirst(6).trimmingCharacters(in: .whitespaces))
+            } else if compTrimmed.hasPrefix("status:") {
+                statusIcon = String(compTrimmed.dropFirst(7).trimmingCharacters(in: .whitespaces))
+            }
         }
 
-        lastProcessedLineCount = totalLines
-    }
-
-    private func processExternalCommands(_ content: String) {
-        let lines = content.components(separatedBy: .newlines)
-        for line in lines {
-            let trimmed = line.trimmingCharacters(in: .whitespaces)
-            guard !trimmed.isEmpty else { continue }
-
-            if trimmed.hasPrefix("complete:") {
-                // Simple completion: complete:stepId
-                let stepId = String(trimmed.dropFirst(9))
-                if !completedSteps.contains(stepId) {
-                    if inspectState.items.contains(where: { $0.id == stepId }) {
-                        withAnimation(.spring()) {
-                            completedSteps.insert(stepId)
-                            inspectState.completedItems.insert(stepId)
-                        }
-                        writeLog("Preset6: Step '\(stepId)' marked complete via trigger", logLevel: .info)
-                    }
-                }
-            } else if trimmed.hasPrefix("success:") {
-                let parts = trimmed.dropFirst(8).split(separator: ":", maxSplits: 1)
-                let stepId = String(parts[0])
-                let message = parts.count > 1 ? String(parts[1]) : nil
-                handleCompletionTrigger(stepId: stepId, result: .success(message: message))
-            } else if trimmed.hasPrefix("failure:") {
-                let parts = trimmed.dropFirst(8).split(separator: ":", maxSplits: 1)
-                let stepId = String(parts[0])
-                let reason = parts.count > 1 ? String(parts[1]) : "Step failed"
-                handleCompletionTrigger(stepId: stepId, result: .failure(message: reason))
-            } else if trimmed.hasPrefix("warning:") {
-                // Warning result: warning:stepId:optional_message
-                let parts = trimmed.dropFirst(8).split(separator: ":", maxSplits: 1)
-                let stepId = String(parts[0])
-                let message = parts.count > 1 ? String(parts[1]) : "Step warning"
-                handleCompletionTrigger(stepId: stepId, result: .warning(message: message))
-            } else if trimmed == "reset" {
-                // Reset all progress
-                resetSteps()
-            } else if trimmed.hasPrefix("navigate:") {
-                // Navigate by index: navigate:stepIndex
-                let stepIndexString = String(trimmed.dropFirst(9)).trimmingCharacters(in: .whitespaces)
-                if let stepIndex = Int(stepIndexString), stepIndex >= 0, stepIndex < inspectState.items.count {
-                    autoNavigationWorkItem?.cancel()
-                    autoNavigationWorkItem = nil
-                    withAnimation(.spring()) {
-                        currentStep = stepIndex
-                    }
-                    writeLog("Preset6: Navigated to step index \(stepIndex) via trigger", logLevel: .info)
-                }
-            } else if trimmed.hasPrefix("listitem:") {
-                // Update list item status icon
-                // Format: listitem:index:X,status:icon
-                let remainder = String(trimmed.dropFirst(9))
-                let components = remainder.components(separatedBy: ",")
-
-                var itemIndex: Int?
-                var statusIcon: String?
-
-                for component in components {
-                    let compTrimmed = component.trimmingCharacters(in: .whitespaces)
-                    if compTrimmed.hasPrefix("index:") {
-                        let indexStr = compTrimmed.dropFirst(6).trimmingCharacters(in: .whitespaces)
-                        itemIndex = Int(indexStr)
-                    } else if compTrimmed.hasPrefix("status:") {
-                        statusIcon = String(compTrimmed.dropFirst(7).trimmingCharacters(in: .whitespaces))
-                    }
-                }
-
-                if let index = itemIndex, index >= 0, index < inspectState.items.count {
-                    if let status = statusIcon, !status.isEmpty {
-                        dynamicState.updateItemStatusIcon(index: index, icon: status)
-                        writeLog("Preset6: Updated item \(index) status icon to '\(status)'", logLevel: .info)
-                    } else {
-                        dynamicState.updateItemStatusIcon(index: index, icon: nil)
-                        writeLog("Preset6: Cleared item \(index) status icon", logLevel: .info)
-                    }
-                }
-            } else if trimmed.hasPrefix("progress:") {
-                // Update progress percentage: progress:stepId:percentage
-                let parts = trimmed.dropFirst(9).split(separator: ":")
-                if parts.count == 2 {
-                    let stepId = String(parts[0])
-                    if let percentage = Int(String(parts[1])) {
-                        dynamicState.updateProgress(stepId: stepId, percentage: percentage)
-                        writeLog("Preset6: Updated progress for '\(stepId)': \(percentage)%", logLevel: .info)
-                    }
-                }
-            } else if trimmed.hasPrefix("update_guidance:") {
-                // Update guidance content: update_guidance:stepId:blockIndex:prop=val
-                let parts = trimmed.dropFirst(16).split(separator: ":", maxSplits: 2)
-                if parts.count == 3 {
-                    let stepId = String(parts[0])
-                    if let blockIndex = Int(String(parts[1])) {
-                        let valueString = String(parts[2])
-
-                        // Validate stepId exists
-                        guard inspectState.items.contains(where: { $0.id == stepId }) else {
-                            writeAcknowledgment("update_guidance", stepId: stepId, index: blockIndex, status: "error", message: "Invalid stepId")
-                            continue
-                        }
-
-                        // Check if this is a property update (contains '=')
-                        if valueString.contains("=") {
-                            let propParts = valueString.split(separator: "=", maxSplits: 1)
-                            if propParts.count == 2 {
-                                let property = String(propParts[0])
-                                let value = String(propParts[1])
-                                dynamicState.updateGuidanceProperty(stepId: stepId, blockIndex: blockIndex, property: property, value: value)
-                                logPreset6Event("guidance_property_update", details: ["stepId": stepId, "index": blockIndex, "property": property, "value": value])
-                                writeAcknowledgment("property_update", stepId: stepId, index: blockIndex, status: "success", property: property, value: value)
-                            }
-                        } else {
-                            // Legacy content update
-                            dynamicState.updateGuidanceContent(stepId: stepId, blockIndex: blockIndex, content: valueString)
-                            logPreset6Event("guidance_content_update", details: ["stepId": stepId, "index": blockIndex, "content": valueString])
-                            writeAcknowledgment("content_update", stepId: stepId, index: blockIndex, status: "success")
-                        }
-                    }
-                }
-            } else if trimmed.hasPrefix("update_message:") {
-                // Update processing message: update_message:stepId:message
-                let parts = trimmed.dropFirst(15).split(separator: ":", maxSplits: 1)
-                if parts.count == 2 {
-                    let stepId = String(parts[0])
-                    let message = String(parts[1])
-                    dynamicState.updateMessage(stepId: stepId, message: message)
-                    writeLog("Preset6: Updated message for '\(stepId)': \(message)", logLevel: .info)
-                }
-            } else if trimmed == "recheck:" || trimmed.hasPrefix("recheck:") {
-                // Trigger plist recheck: recheck: or recheck:itemId
-                let targetItemId = trimmed == "recheck:" ? nil : String(trimmed.dropFirst(8))
-
-                if let itemId = targetItemId {
-                    inspectState.recheckPlistMonitorsForItem(itemId) { itemId, blockIndex, property, newValue in
-                        dynamicState.updateGuidanceProperty(stepId: itemId, blockIndex: blockIndex, property: property, value: newValue)
-                    }
-                    writeLog("Preset6: Manual recheck triggered for item '\(itemId)'", logLevel: .info)
-                } else {
-                    inspectState.recheckAllPlistMonitors { itemId, blockIndex, property, newValue in
-                        dynamicState.updateGuidanceProperty(stepId: itemId, blockIndex: blockIndex, property: property, value: newValue)
-                    }
-                    writeLog("Preset6: Manual recheck triggered for ALL items", logLevel: .info)
-                }
-            } else if trimmed == "next" {
-                navigateToNextStep()
-            } else if trimmed == "prev" || trimmed == "back" {
-                goToPreviousStep()
-            } else if trimmed.hasPrefix("goto:") {
-                let stepId = String(trimmed.dropFirst(5))
-                if let index = inspectState.items.firstIndex(where: { $0.id == stepId }) {
-                    handleStepSelection(index)
-                    writeInteractionLog("goto", step: stepId)
-                }
-            } else if trimmed.hasPrefix("display_data:") {
-                // Display dynamic key-value data
-                // Format: display_data:stepId:key:value[:color]
-                let parts = trimmed.dropFirst(13).split(separator: ":", maxSplits: 2)
-                if parts.count >= 3 {
-                    let stepId = String(parts[0])
-                    let key = String(parts[1])
-                    let valueAndColor = String(parts[2])
-
-                    // Check if the last segment is a color (starts with #)
-                    var value = valueAndColor
-                    var color: String?
-
-                    if let lastColonIndex = valueAndColor.lastIndex(of: ":") {
-                        let potentialColor = String(valueAndColor[valueAndColor.index(after: lastColonIndex)...])
-                        if potentialColor.hasPrefix("#") {
-                            color = potentialColor
-                            value = String(valueAndColor[..<lastColonIndex])
-                        }
-                    }
-
-                    dynamicState.updateDisplayData(stepId: stepId, key: key, value: value, color: color)
-                    logPreset6Event("display_data_update", details: ["stepId": stepId, "key": key, "value": value, "color": color ?? "none"])
-                    writeAcknowledgment("display_data", stepId: stepId, index: 0, status: "success", property: key, value: value)
-                }
+        if let index = itemIndex, index >= 0, index < inspectState.items.count {
+            if let status = statusIcon, !status.isEmpty {
+                dynamicState.updateItemStatusIcon(index: index, icon: status)
+            } else {
+                dynamicState.updateItemStatusIcon(index: index, icon: nil)
             }
         }
     }
 
+    /// Process a batch update JSON payload. Resolves block keys (numeric index or block ID)
+    /// and applies all updates in a single @Published fire via `updateGuidancePropertiesBatch()`.
+    private struct BatchUpdatePayload: Codable {
+        let step: String
+        let updates: [String: [String: String]]
+    }
+
+    private func processBatchUpdate(_ jsonString: String) {
+        guard let data = jsonString.data(using: .utf8),
+              let payload = try? JSONDecoder().decode(BatchUpdatePayload.self, from: data)
+        else {
+            writeLog("Preset6: batch_update: invalid JSON — \(jsonString.prefix(200))", logLevel: .error)
+            return
+        }
+
+        let resolvedItem: InspectConfig.ItemConfig?
+        if payload.step == "_" {
+            resolvedItem = payload.updates.keys.compactMap { key -> InspectConfig.ItemConfig? in
+                guard Int(key) == nil else { return nil }
+                return inspectState.items.first { item in
+                    item.guidanceContent?.contains { $0.id == key } == true
+                }
+            }.first ?? inspectState.items.first
+        } else {
+            resolvedItem = inspectState.items.first { $0.id == payload.step }
+        }
+
+        guard let item = resolvedItem, let content = item.guidanceContent else {
+            writeLog("Preset6: batch_update: cannot resolve step '\(payload.step)'", logLevel: .error)
+            return
+        }
+
+        var resolvedBlocks: [Int: [String: String]] = [:]
+        for (blockKey, properties) in payload.updates {
+            if let blockIndex = InspectConfig.GuidanceContent.resolveBlockIndex(blockKey, in: content) {
+                resolvedBlocks[blockIndex] = properties
+            }
+        }
+
+        guard !resolvedBlocks.isEmpty else { return }
+        dynamicState.updateGuidancePropertiesBatch(stepId: item.id, blocks: resolvedBlocks)
+        logPreset6Event("batch_update", details: ["stepId": item.id, "blocks": resolvedBlocks.count])
+    }
+
+    /// Handle set: commands for dynamic content overrides
+    private func handleSetCommand(targetType: String, value: String, extra: String?) {
+        switch targetType {
+        case "status-badge":
+            // set:status-badge:labelOrId:state — find block by label/ID and update state property
+            let label = value
+            let state = extra ?? "enabled"
+            for item in inspectState.items {
+                guard let content = item.guidanceContent else { continue }
+                for (blockIndex, block) in content.enumerated() {
+                    let blockKey = block.id ?? block.content ?? block.label ?? ""
+                    if blockKey == label || block.label == label {
+                        dynamicState.updateGuidanceProperty(stepId: item.id, blockIndex: blockIndex, property: "state", value: state)
+                        writeLog("Preset6: Set status badge '\(label)' → '\(state)'", logLevel: .info)
+                        return
+                    }
+                }
+            }
+
+        case "phase-tracker":
+            // set:phase-tracker:phaseIndex — update currentPhase on matching blocks
+            if let phaseIndex = Int(value) {
+                for item in inspectState.items {
+                    guard let content = item.guidanceContent else { continue }
+                    for (blockIndex, block) in content.enumerated() where block.type == "phaseTracker" {
+                        dynamicState.updateGuidanceProperty(stepId: item.id, blockIndex: blockIndex, property: "currentPhase", value: "\(phaseIndex)")
+                    }
+                }
+                writeLog("Preset6: Set phase tracker to phase \(phaseIndex)", logLevel: .info)
+            }
+
+        case "icon":
+            // set:icon:pathOrSFSymbol — global icon override
+            dynamicState.updateDisplayData(stepId: "_global", key: "icon", value: value)
+            writeLog("Preset6: Set icon override to '\(value)'", logLevel: .info)
+
+        case "heroImage":
+            // set:heroImage:stepId:pathOrSFSymbol — per-step hero image override
+            let stepId = value
+            let path = extra ?? ""
+            if !path.isEmpty {
+                dynamicState.updateDisplayData(stepId: stepId, key: "heroImage", value: path)
+                writeLog("Preset6: Set hero image for '\(stepId)' → '\(path)'", logLevel: .info)
+            } else {
+                dynamicState.customDataDisplay.removeValue(forKey: stepId)
+                writeLog("Preset6: Cleared hero image for '\(stepId)'", logLevel: .info)
+            }
+
+        case "iconBasePath":
+            // set:iconBasePath:path — override icon base path
+            dynamicState.updateDisplayData(stepId: "_global", key: "iconBasePath", value: value)
+            writeLog("Preset6: Set icon base path to '\(value)'", logLevel: .info)
+
+        case "clear":
+            // set:clear:type — clear dynamic overrides
+            switch value {
+            case "status-badge", "status-badges":
+                dynamicState.dynamicGuidanceProperties.removeAll()
+            case "icon":
+                dynamicState.customDataDisplay.removeValue(forKey: "_global")
+            case "heroImage", "heroImages":
+                // Remove hero image entries (keep _global)
+                for key in dynamicState.customDataDisplay.keys where key != "_global" {
+                    dynamicState.customDataDisplay.removeValue(forKey: key)
+                }
+            case "all":
+                dynamicState.dynamicGuidanceProperties.removeAll()
+                dynamicState.customDataDisplay.removeAll()
+            default: break
+            }
+            writeLog("Preset6: Cleared '\(value)' overrides", logLevel: .info)
+
+        default:
+            writeLog("Preset6: Unknown set command type: \(targetType)", logLevel: .debug)
+        }
+    }
+
+    /// Handle item-level status command
+    private func handleItemStatusCommand(itemId: String, status: String, message: String?) {
+        switch status.lowercased() {
+        case "success", "completed":
+            withAnimation(.spring()) {
+                completedSteps.insert(itemId)
+                inspectState.completedItems.insert(itemId)
+                downloadingItems.remove(itemId)
+            }
+        case "failed", "error":
+            withAnimation(.spring()) {
+                failedSteps[itemId] = message ?? "Failed"
+                downloadingItems.remove(itemId)
+            }
+        case "downloading":
+            withAnimation(.spring()) { downloadingItems.insert(itemId) }
+        case "pending":
+            withAnimation(.spring()) {
+                completedSteps.remove(itemId)
+                failedSteps.removeValue(forKey: itemId)
+                downloadingItems.remove(itemId)
+            }
+        default: break
+        }
+    }
+
     private func stopFileMonitoring() {
-        commandFileMonitorTimer?.invalidate()
-        commandFileMonitorTimer = nil
-        fileMonitorSource?.cancel()
-        fileMonitorSource = nil
+        commandRouter.stopMonitoring()
     }
 
     // MARK: - Persistence
 
     private func loadPersistedState() {
+        // Only restore state if resumable mode is explicitly enabled
+        guard inspectState.config?.resumable == true else {
+            writeLog("Preset6: Resumable mode not enabled, starting fresh", logLevel: .debug)
+            return
+        }
+
         guard let state = persistenceService.loadState() else {
             writeLog("Preset6: No persisted state found", logLevel: .debug)
             return
@@ -1790,6 +1904,9 @@ struct Preset6View: View, InspectLayoutProtocol {
     }
 
     private func savePersistedState() {
+        // Only persist state if resumable mode is explicitly enabled
+        guard inspectState.config?.resumable == true else { return }
+
         let state = Preset6State(
             completedSteps: completedSteps,
             currentStep: currentStep,
@@ -1932,36 +2049,6 @@ struct Preset6View: View, InspectLayoutProtocol {
                 }
             } else {
                 try? data.write(to: URL(fileURLWithPath: interactionLogPath))
-            }
-        }
-    }
-
-    // MARK: - Bidirectional Acknowledgment
-
-    private func writeAcknowledgment(_ command: String, stepId: String, index: Int, status: String, property: String? = nil, value: String? = nil, message: String? = nil) {
-        let timestamp = ISO8601DateFormatter().string(from: Date())
-
-        var ackEntry = "\(timestamp) command=\(command) stepId=\(stepId) index=\(index) status=\(status)"
-        if let property = property {
-            ackEntry += " property=\(property)"
-        }
-        if let value = value {
-            ackEntry += " value=\(value)"
-        }
-        if let message = message {
-            ackEntry += " message=\(message)"
-        }
-        ackEntry += "\n"
-
-        if let data = ackEntry.data(using: .utf8) {
-            if FileManager.default.fileExists(atPath: acknowledgmentLogPath) {
-                if let fileHandle = try? FileHandle(forWritingTo: URL(fileURLWithPath: acknowledgmentLogPath)) {
-                    _ = try? fileHandle.seekToEnd()
-                    _ = try? fileHandle.write(contentsOf: data)
-                    try? fileHandle.close()
-                }
-            } else {
-                try? data.write(to: URL(fileURLWithPath: acknowledgmentLogPath))
             }
         }
     }
