@@ -8,7 +8,7 @@
 //
 
 import XCTest
-@testable import dialog
+@testable import Dialog
 
 final class PlistEvaluationTests: XCTestCase {
 

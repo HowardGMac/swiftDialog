@@ -2,7 +2,177 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://github.com/swiftDialog/swiftDialog/inspect-config.schema.json",
   "title": "swiftDialog Inspect Mode Configuration",
-  "description": "Configuration schema for swiftDialog's Inspect mode presets (preset1-preset6)",
+  "description": "Configuration schema for swiftDialog's Inspect mode presets (preset1-preset6). Used with: /usr/local/bin/dialog --inspect-mode --inspect-config <path> or ignitecli ipc inspect <path>",
+  "x-ipc-protocol": {
+    "description": "IPC command protocol for controlling Dialog at runtime via trigger file or DistributedNotifications",
+    "channels": {
+      "com.swiftdialog.command": "External → Dialog: send commands (ignitecli ipc send)",
+      "com.swiftdialog.event": "Dialog → External: lifecycle events (ready, exit, step_changed, button_click, selection)",
+      "com.swiftdialog.ack": "Dialog → External: command acknowledgments with stepId and status",
+      "com.ignitecli.command": "Also observed by Dialog for ignitecli interop"
+    },
+    "commands": {
+      "navigation": {
+        "navigate:<stepId>": "Navigate to step by ID",
+        "navigate:<index>": "Navigate to step by 0-based index",
+        "next": "Navigate to next step",
+        "prev": "Navigate to previous step (alias: back)",
+        "reset": "Reset all progress and return to first step"
+      },
+      "completion": {
+        "success:<stepId>:<message>": "Mark step as successful with optional message",
+        "failure:<stepId>:<reason>": "Mark step as failed with optional reason",
+        "warning:<stepId>:<message>": "Mark step with warning state",
+        "complete:<stepId>": "Mark step as complete (no result state)"
+      },
+      "content_updates": {
+        "message:<stepId>:<text>": "Update step's dynamic message text",
+        "progress:<stepId>:<0-100>": "Update step's progress percentage",
+        "update_guidance:<stepId>:<blockIndex>:<property>=<value>": "Update a guidance block property (state, actual, label, content, visible, progress, etc.)",
+        "update_guidance:<stepId>:<blockId>:<property>=<value>": "Same but resolve block by ID instead of index",
+        "batch_update:{\"step\":\"id\",\"updates\":{\"0\":{\"state\":\"success\",\"actual\":\"value\"}}}": "Atomic multi-block update (single render frame)",
+        "display_data:<stepId>:<key>:<value>[:<color>]": "Update key-value display data"
+      },
+      "badges": {
+        "badge:<blockId>:<state>": "Shorthand: update a status-badge state by block ID (resolves across all steps)"
+      },
+      "selections": {
+        "select:<key>:<value1,value2>": "Set selection values for a dropdown/radio/grid by key"
+      },
+      "validation": {
+        "recheck": "Re-evaluate all plist/JSON monitors",
+        "recheck:<itemId>": "Re-evaluate monitors for a specific item"
+      },
+      "overrides": {
+        "set:<targetType>:<value>[:<extra>]": "Dynamic content override (e.g., set:icon:/path/to/icon.png)",
+        "item_status:<itemId>:<status>[:<message>]": "Override item status icon",
+        "listitem:<remainder>": "Dynamic list item management (Preset6 sidebar)"
+      }
+    },
+    "shorthand_notifications": {
+      "description": "When sending via DistributedNotification (ignitecli ipc send), commands are auto-expanded to JSON shorthand. Example: 'success:edge:Installed' becomes {\"success\": \"edge:Installed\"}",
+      "keys": {
+        "success": "{\"success\": \"stepId:message\"}",
+        "failure": "{\"failure\": \"stepId:reason\"}",
+        "warning": "{\"warning\": \"stepId:message\"}",
+        "complete": "{\"complete\": \"stepId\"}",
+        "navigate": "{\"navigate\": \"stepId\"}",
+        "progress": "{\"progress\": \"stepId:pct\"}",
+        "badge": "{\"badge\": \"blockId:state\"}",
+        "select": "{\"select\": \"key:values\"}",
+        "next": "{\"next\": true}",
+        "prev": "{\"prev\": true}",
+        "reset": "{\"reset\": true}"
+      }
+    },
+    "lifecycle_events": {
+      "ready": "Posted when Dialog is initialized and ready for commands. Readiness file written to readinessFile path with JSON: {pid, triggerFile, timestamp, ackChannel, preset, itemCount, items}",
+      "exit": "Posted when Dialog closes. Includes exitCode, completedCount, failedCount, totalSteps, resultFile",
+      "defer": "Posted when user selects a deferral option. Exit code 10, result file contains deferDuration and deferSeconds",
+      "step_changed": "Posted when user navigates to a different step. Includes stepId",
+      "button_click": "Posted when user clicks a button. Includes stepId, label, action",
+      "selection": "Posted when user makes a selection. Includes key, values"
+    },
+    "ignitecli_commands": {
+      "ignitecli ipc inspect <config>": "Launch Dialog in inspect mode",
+      "ignitecli ipc wait-ready [--timeout N]": "Wait for Dialog ready event (notification-first, file fallback)",
+      "ignitecli ipc send <command>": "Send command (notification-first, --file-only for file only)",
+      "ignitecli ipc batch --step <id> --json '{...}'": "Atomic multi-block update",
+      "ignitecli ipc wait-step <stepId> [--timeout N]": "Wait for user to navigate to a step",
+      "ignitecli ipc wait-exit [--timeout N]": "Wait for Dialog to close",
+      "ignitecli ipc result [--key path]": "Read result JSON",
+      "ignitecli ipc cleanup [--force]": "Clean up IPC state files",
+      "ignitecli ipc notify <name> [--command str]": "Post raw DistributedNotification",
+      "ignitecli ipc listen <config>": "Observe notifications and run actions"
+    },
+    "status_badge_pattern": {
+      "description": "status-badge displays label (top, bold) + actual or state (bottom, colored). Use state for semantic coloring and actual for the display value.",
+      "states": {
+        "success/enabled/installed/pass": "Green checkmark",
+        "fail/disabled/error/missing": "Red X",
+        "pending/waiting/checking": "Orange clock",
+        "info/unknown": "Gray dot"
+      },
+      "example_static": {
+        "type": "status-badge",
+        "label": "CPU",
+        "state": "success",
+        "actual": "Apple M4 Max"
+      },
+      "example_dynamic_update": "ignitecli ipc batch --step hw --json '{\"0\": {\"state\": \"success\", \"actual\": \"Apple M4 Max\"}}'"
+    },
+    "critical_pattern": {
+      "description": "Pre-load data BEFORE navigating. Dialog's dynamicState buffers writes for any step. Data sent after navigation arrives mid-animation and renders late.",
+      "correct": "ignitecli ipc batch --step step3 --json '{...}' && ignitecli ipc send next",
+      "wrong": "ignitecli ipc send next && ignitecli ipc batch --step step3 --json '{...}'"
+    }
+  },
+  "x-examples": {
+    "preset4_toast_installer": {
+      "description": "Compact toast showing app installation progress",
+      "config": {
+        "preset": "4",
+        "title": "Installing Apps",
+        "triggerFile": "/tmp/installer.trigger",
+        "items": [
+          { "id": "slack", "displayName": "Slack", "icon": "SF=message.fill", "processingDuration": 5 },
+          { "id": "zoom", "displayName": "Zoom", "icon": "SF=video.fill", "processingDuration": 5 }
+        ]
+      },
+      "script": "ignitecli ipc inspect config.json && ignitecli ipc wait-ready && ignitecli ipc send 'success:slack:Done' && ignitecli ipc send 'success:zoom:Done'"
+    },
+    "preset6_sysinfo_dashboard": {
+      "description": "Sidebar dashboard with live system info via status-badge actual values",
+      "config": {
+        "preset": "6",
+        "title": "System Overview",
+        "items": [
+          {
+            "id": "hw",
+            "displayName": "Hardware",
+            "icon": "SF=desktopcomputer",
+            "guidanceTitle": "Hardware",
+            "guidanceContent": [
+              { "type": "status-badge", "label": "Model", "state": "success", "actual": "Mac Studio (2025)" },
+              { "type": "status-badge", "label": "CPU", "state": "success", "actual": "Apple M4 Max" }
+            ]
+          }
+        ]
+      },
+      "script": "ignitecli sysinfo all > /tmp/info.json && ignitecli ipc inspect config.json"
+    },
+    "deferral_flow": {
+      "description": "Update prompt with 'Not Now' deferral menu (exit code 10)",
+      "config_snippet": {
+        "deferralConfig": {
+          "enabled": true,
+          "buttonText": "Not Now",
+          "exitCode": 10,
+          "options": [
+            { "duration": "1h", "label": "Remind me in 1 hour" },
+            { "duration": "4h", "label": "Remind me in 4 hours" },
+            { "duration": "tomorrow", "label": "Remind me tomorrow" }
+          ]
+        }
+      }
+    },
+    "dynamic_batch_update": {
+      "description": "Update multiple status badges atomically after running checks",
+      "script": "ignitecli ipc batch --step checks --json '{\"0\": {\"state\": \"success\", \"actual\": \"192.168.1.123\"}, \"1\": {\"state\": \"fail\", \"actual\": \"8 GB free (need 20)\"}, \"2\": {\"progress\": \"0.66\", \"label\": \"Checking...\"}}'"
+    },
+    "ignitecli_tools": {
+      "description": "ignitecli system tools that produce data for Dialog badges",
+      "tools": {
+        "ignitecli sysinfo all": "JSON with hardware, disk, network, os, user info",
+        "ignitecli locale get --json": "Language, region, timezone, keyboards",
+        "ignitecli locale keyboards --json": "Available keyboard input sources",
+        "ignitecli check all --step <id>": "Run network/storage/OS checks with auto badge updates",
+        "ignitecli browser get": "Current default browser",
+        "ignitecli wallpaper get": "Current wallpaper path",
+        "ignitecli json get <file> <keypath>": "Extract value from JSON file"
+      }
+    }
+  },
   "type": "object",
   "required": ["preset"],
   "properties": {
@@ -191,6 +361,11 @@
       "default": true,
       "description": "Preset6: Auto-navigate to next step after marking complete"
     },
+    "autoAdvanceDelay": {
+      "type": "number",
+      "default": 0.5,
+      "description": "Seconds to wait before auto-advancing to next step (default: 0.5). Set higher (e.g., 2.0) to let users see check results."
+    },
     "rotatingImages": {
       "type": "array",
       "items": { "type": "string" },
@@ -256,6 +431,21 @@
       "description": "Help popovers for categories",
       "items": { "$ref": "#/definitions/CategoryHelp" }
     },
+    "labels": {
+      "type": "object",
+      "description": "Unified labels: single flat key-value for all Dialog UI text. Merges uiLabels + complianceLabels + pickerLabels. Takes precedence over legacy structs. Supports inline translations.",
+      "properties": {
+        "translations": {
+          "type": "object",
+          "description": "Inline translations keyed by language code (e.g., 'de', 'fr'). Each value is a flat key-value map of label overrides.",
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": { "type": "string" }
+          }
+        }
+      },
+      "additionalProperties": { "type": "string" }
+    },
     "logMonitor": { "$ref": "#/definitions/LogMonitorConfig" },
     "logMonitors": {
       "type": "array",
@@ -299,7 +489,60 @@
     "supportText": {
       "type": "string",
       "description": "Optional support contact text in footer"
-    }
+    },
+    "showAccentBorder": {
+      "type": "boolean",
+      "default": true,
+      "description": "Show top accent border ribbon (default: true)"
+    },
+    "readinessFile": {
+      "type": "string",
+      "description": "Path to write readiness signal JSON (default: '{triggerFile}.ready'). Written when preset is ready for commands."
+    },
+    "resultFile": {
+      "type": "string",
+      "description": "Path to write JSON result on exit (selections, form values, step statuses)"
+    },
+    "eventFile": {
+      "type": "string",
+      "description": "Path to write JSONL step events (step_started, step_completed, etc.)"
+    },
+    "deferralConfig": { "$ref": "#/definitions/DeferralConfig" },
+    "resumable": {
+      "type": "boolean",
+      "default": false,
+      "description": "Opt-in state persistence: when true, saves progress and resumes on relaunch"
+    },
+    "dateStyle": {
+      "type": "string",
+      "enum": ["relative", "short", "medium", "long", "iso8601"],
+      "default": "medium",
+      "description": "Date display format for timestamps"
+    },
+    "progressMode": {
+      "type": "string",
+      "enum": ["shared", "perItem"],
+      "description": "Preset4: 'shared' (single bar, X of Y) | 'perItem' (indeterminate per item)"
+    },
+    "backButtonStyle": {
+      "type": "string",
+      "enum": ["inline", "footer"],
+      "default": "inline",
+      "description": "Back button placement: 'inline' (inside scroll content) | 'footer' (in footer bar)"
+    },
+    "brands": {
+      "type": "array",
+      "description": "Available brand options for brand picker step (multi-brand onboarding)",
+      "items": { "$ref": "#/definitions/BrandConfig" }
+    },
+    "brandSelectionKey": {
+      "type": "string",
+      "default": "selectedBrand",
+      "description": "Persistence key for selected brand"
+    },
+    "localization": { "$ref": "#/definitions/LocalizationConfig" },
+    "introScreen": { "$ref": "#/definitions/PresetIntroScreen" },
+    "summaryScreen": { "$ref": "#/definitions/PresetSummaryScreen" }
   },
   "definitions": {
     "ItemConfig": {
@@ -382,8 +625,8 @@
         },
         "stepType": {
           "type": "string",
-          "enum": ["info", "confirmation", "processing", "completion"],
-          "description": "Step type for workflow"
+          "enum": ["intro", "processing", "outro", "info", "confirmation", "completion", "guide"],
+          "description": "Step type: 'intro' (welcome page), 'processing' (countdown/wait), 'outro' (completion page), 'guide' (monitored), 'info'/'confirmation'/'completion' (content)"
         },
         "autoAdvanceOnComplete": {
           "type": "boolean",
@@ -836,7 +1079,7 @@
         },
         "actual": {
           "type": "string",
-          "description": "Actual value for comparison-table"
+          "description": "Display value for status-badge (shown instead of state text while state controls icon/color) or actual value for comparison-table"
         },
         "expectedLabel": {
           "type": "string",
@@ -1038,6 +1281,11 @@
         "wallpaperMultiSelect": {
           "type": "integer",
           "description": "Number of monitors for multi-select (nil/0 = single select)"
+        },
+        "numbered": {
+          "type": "boolean",
+          "default": false,
+          "description": "For bullets: use numbered circle icons (1.circle.fill, etc.) instead of a single icon"
         },
         "items": {
           "type": "array",
@@ -1314,6 +1562,10 @@
         "includePattern": {
           "type": "string",
           "description": "Regex pattern to include keys (optional)"
+        },
+        "timestampKey": {
+          "type": "string",
+          "description": "Key for last-check timestamp (default: tries 'lastComplianceCheck', 'LastUpdateCheck', 'lastCheck', 'timestamp')"
         }
       }
     },
@@ -1694,6 +1946,10 @@
           "type": "string",
           "description": "Path to logo image file"
         },
+        "imagePathDark": {
+          "type": "string",
+          "description": "Dark mode variant (falls back to imagePath if nil)"
+        },
         "position": {
           "type": "string",
           "enum": ["topleft", "topright", "bottomleft", "bottomright"],
@@ -1714,6 +1970,55 @@
           "type": "number",
           "default": 80,
           "description": "Maximum height in points"
+        },
+        "opacity": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "description": "Logo opacity (default: 0.6 for bottom, 1.0 for top)"
+        },
+        "scale": {
+          "type": "number",
+          "default": 1.0,
+          "description": "Scale multiplier for main phase"
+        },
+        "introScale": {
+          "type": "number",
+          "default": 1.5,
+          "description": "Scale multiplier for intro screen"
+        },
+        "outroScale": {
+          "type": "number",
+          "default": 1.0,
+          "description": "Scale multiplier for outro/summary screen"
+        },
+        "verticalOffset": {
+          "type": "number",
+          "default": 0,
+          "description": "Vertical nudge in points: negative=up, positive=down"
+        },
+        "introVerticalOffset": {
+          "type": "number",
+          "description": "Vertical nudge for intro phase (falls back to verticalOffset)"
+        },
+        "outroVerticalOffset": {
+          "type": "number",
+          "description": "Vertical nudge for outro/summary phase (falls back to verticalOffset)"
+        },
+        "showOnIntro": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show logo during intro phase"
+        },
+        "showOnMain": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show logo during main phase"
+        },
+        "showOnSummary": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show logo during summary/outro phase"
         },
         "backgroundColor": {
           "type": "string",
@@ -1854,6 +2159,16 @@
           "type": "boolean",
           "default": false,
           "description": "Use wider overlay dimensions (900-1100 instead of default 720-880)"
+        },
+        "detailMedia": {
+          "type": "string",
+          "description": "Image/GIF/video path for right-side media panel in inline detail view"
+        },
+        "detailMediaFit": {
+          "type": "string",
+          "enum": ["fill", "fit"],
+          "default": "fill",
+          "description": "How media fills the panel"
         }
       }
     },
@@ -2206,6 +2521,10 @@
           "type": "object",
           "additionalProperties": { "type": "string" },
           "description": "Additional custom key mappings"
+        },
+        "allowedBrandsKey": {
+          "type": "string",
+          "description": "MDM key for array of allowed brand IDs (brand picker filtering)"
         }
       }
     },
@@ -2220,8 +2539,8 @@
         },
         "stepType": {
           "type": "string",
-          "enum": ["intro", "processing", "outro", "portal"],
-          "description": "Step type (default: 'intro')"
+          "enum": ["intro", "processing", "outro", "portal", "assistant", "guide", "deployment", "carousel", "showcase", "bento", "media"],
+          "description": "Step type (default: 'intro'). 'portal' = embedded webview, 'assistant' = Apple Setup Assistant style, 'guide' = monitored step, 'deployment'/'carousel'/'showcase'/'bento'/'media' = specialized layouts"
         },
         "heroImage": {
           "type": "string",
@@ -2478,7 +2797,114 @@
           "default": 1.0,
           "description": "Global refresh interval in seconds for monitors"
         },
-        "portalConfig": { "$ref": "#/definitions/PortalConfig" }
+        "portalConfig": { "$ref": "#/definitions/PortalConfig" },
+        "sideMessages": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Rotating messages shown in content area (step-level)"
+        },
+        "sideMessageInterval": {
+          "type": "integer",
+          "default": 8,
+          "description": "Rotation interval in seconds"
+        },
+        "popupButtonText": {
+          "type": "string",
+          "description": "Sidebar popup button text (e.g., 'Install Details...')"
+        },
+        "completionMode": {
+          "type": "string",
+          "enum": ["any", "all"],
+          "default": "any",
+          "description": "How multiple completionTriggers combine"
+        },
+        "skipButtonText": {
+          "type": "string",
+          "description": "Secondary button label left of Continue (e.g., 'Set Up Later')"
+        },
+        "footerLink": {
+          "type": "string",
+          "description": "Centered privacy/info link text (e.g., 'About Privacy...')"
+        },
+        "heroBackgroundColor": {
+          "type": "string",
+          "description": "Hex color for hero image background area (e.g., '#05164D')"
+        },
+        "guideGradientColors": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Hex colors for left panel gradient (fallback: highlightColor)"
+        },
+        "guideImageRatio": {
+          "type": "number",
+          "default": 0.65,
+          "description": "Left panel width ratio 0.0-1.0"
+        },
+        "guideCategoryIcon": {
+          "type": "string",
+          "description": "Category icon for sidebar header (SF symbol name)"
+        },
+        "guideStepBadge": {
+          "type": "string",
+          "description": "Badge text in sidebar header (e.g., 'REQUIRED')"
+        },
+        "guideKeyPoints": {
+          "type": "string",
+          "description": "Key points text block for sidebar"
+        },
+        "guideBulletPoints": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Bullet point list for sidebar"
+        },
+        "bentoSidebarRatio": {
+          "type": "number",
+          "minimum": 0.25,
+          "maximum": 0.45,
+          "default": 0.35,
+          "description": "Sidebar width ratio for split mode"
+        },
+        "bentoSidebarContent": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/GuidanceContent" },
+          "description": "Rich content for split sidebar"
+        },
+        "assistantImageHeight": {
+          "type": "number",
+          "default": 0.4,
+          "description": "Hero image area ratio 0.0-1.0 for assistant stepType"
+        },
+        "mediaSide": {
+          "type": "string",
+          "enum": ["left", "right"],
+          "default": "right",
+          "description": "Which side the media panel appears"
+        },
+        "mediaRatio": {
+          "type": "number",
+          "default": 0.5,
+          "description": "Media panel width ratio 0.2-0.8"
+        },
+        "mediaFit": {
+          "type": "string",
+          "enum": ["fill", "fit"],
+          "default": "fill",
+          "description": "Media fill mode: 'fill' (crop) or 'fit' (show entire image)"
+        },
+        "showcaseGradientColors": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Hex colors for gradient background (fallback: highlightColor)"
+        },
+        "showcaseTextColor": {
+          "type": "string",
+          "description": "Hex color for overlay text (fallback: white 90%)"
+        },
+        "showcaseImageHeight": {
+          "type": "number",
+          "default": 0.6,
+          "description": "Image area height ratio 0.0-1.0"
+        }
       }
     },
     "LogMonitorConfig": {
@@ -2645,6 +3071,10 @@
           "type": "number",
           "default": 200,
           "description": "Hero image size in points"
+        },
+        "heroImagePadding": {
+          "type": "number",
+          "description": "Inset padding in points (nil = auto ~4%, 0 = none)"
         },
         "logoImage": {
           "type": "string",
@@ -2929,6 +3359,259 @@
           "type": "array",
           "items": { "type": "boolean" },
           "description": "Boolean values for each column (true = checkmark, false = X)"
+        }
+      }
+    },
+    "DeferralConfig": {
+      "type": "object",
+      "description": "User-initiated deferral menu configuration. Integrates with ignitecli's deferral system (env vars, exit code 10, result file). Shared across presets.",
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "Show defer menu (also enabled if IGNITECLI_DEFER_ENABLED=true env var is set)"
+        },
+        "buttonText": {
+          "type": "string",
+          "default": "Not Now",
+          "description": "Menu button label"
+        },
+        "options": {
+          "type": "array",
+          "description": "Deferral duration options. Falls back to IGNITECLI_DEFER_OPTIONS env var if not set.",
+          "items": { "$ref": "#/definitions/DeferOption" }
+        },
+        "exitCode": {
+          "type": "integer",
+          "default": 10,
+          "description": "Exit code on deferral (ignitecli standard: 10)"
+        }
+      }
+    },
+    "DeferOption": {
+      "type": "object",
+      "required": ["duration"],
+      "description": "A deferral duration option",
+      "properties": {
+        "duration": {
+          "type": "string",
+          "description": "ignitecli duration format: '3m', '20m', '1h', '4h', '1d', 'tomorrow'"
+        },
+        "label": {
+          "type": "string",
+          "description": "Human-readable label override; auto-generated from duration if nil"
+        }
+      }
+    },
+    "LocalizationConfig": {
+      "type": "object",
+      "description": "Language sidecar files for translating intro step text. Files are flat JSON with keys like '{stepId}.title', '{stepId}.content.0.content'.",
+      "properties": {
+        "languages": {
+          "type": "object",
+          "additionalProperties": { "type": "string" },
+          "description": "Language code → relative file path map (e.g., { \"de\": \"lang/de.json\" })"
+        },
+        "selectionKey": {
+          "type": "string",
+          "default": "preferredLanguage",
+          "description": "gridSelectionKey holding the language choice"
+        },
+        "defaultLanguage": {
+          "type": "string",
+          "description": "'auto' = system locale, 'de' = hardcoded, null = no default"
+        },
+        "languagePicker": {
+          "type": "boolean",
+          "description": "Show language selection page in legacy presets onboarding"
+        }
+      }
+    },
+    "BrandConfig": {
+      "type": "object",
+      "required": ["id", "displayName"],
+      "description": "Brand option for multi-brand onboarding picker",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique brand identifier"
+        },
+        "displayName": {
+          "type": "string",
+          "description": "Display name on picker card"
+        },
+        "subtitle": {
+          "type": "string",
+          "description": "Subtitle on picker card"
+        },
+        "logoPath": {
+          "type": "string",
+          "description": "Card logo path (shown on picker)"
+        },
+        "sfSymbol": {
+          "type": "string",
+          "description": "SF Symbol alternative to logoPath"
+        },
+        "highlightColor": {
+          "type": "string",
+          "description": "Accent color override when selected (hex)"
+        },
+        "accentBorderColor": {
+          "type": "string",
+          "description": "Top accent border color override (hex)"
+        },
+        "footerBackgroundColor": {
+          "type": "string",
+          "description": "Footer background color override (hex)"
+        },
+        "footerTextColor": {
+          "type": "string",
+          "description": "Footer text color override (hex)"
+        },
+        "footerText": {
+          "type": "string",
+          "description": "Footer text override"
+        },
+        "logoConfigPath": {
+          "type": "string",
+          "description": "Active logo path for footer/sidebar (overrides logoConfig.imagePath)"
+        },
+        "button1Text": {
+          "type": "string",
+          "description": "Primary button text override"
+        },
+        "button2Text": {
+          "type": "string",
+          "description": "Secondary button text override"
+        },
+        "introTitle": {
+          "type": "string",
+          "description": "Intro screen title override"
+        },
+        "outroTitle": {
+          "type": "string",
+          "description": "Outro screen title override"
+        },
+        "introButtonText": {
+          "type": "string",
+          "description": "Intro continue button text override"
+        },
+        "outroButtonText": {
+          "type": "string",
+          "description": "Outro close button text override"
+        }
+      }
+    },
+    "PresetIntroScreen": {
+      "type": "object",
+      "description": "Lightweight intro screen shown before the items view in Preset1/2. Reuses GuidanceContentView for rich content rendering.",
+      "properties": {
+        "title": {
+          "type": "string",
+          "description": "Main heading"
+        },
+        "subtitle": {
+          "type": "string",
+          "description": "Smaller text below title"
+        },
+        "heroImage": {
+          "type": "string",
+          "description": "Path, URL, or 'sf=symbolname'"
+        },
+        "heroImageShape": {
+          "type": "string",
+          "enum": ["circle", "roundedSquare", "none"],
+          "default": "none",
+          "description": "Hero image shape"
+        },
+        "heroImageSize": {
+          "type": "number",
+          "default": 200,
+          "description": "Hero image size in points"
+        },
+        "content": {
+          "type": "array",
+          "description": "Rich content blocks (text, bullets, info, etc.)",
+          "items": { "$ref": "#/definitions/GuidanceContent" }
+        },
+        "buttonText": {
+          "type": "string",
+          "default": "Get Started",
+          "description": "Continue button label"
+        },
+        "showBackButton": {
+          "type": "boolean",
+          "default": false,
+          "description": "Show back button (default: false — it's the first screen)"
+        }
+      }
+    },
+    "PresetSummaryScreen": {
+      "type": "object",
+      "description": "Summary/bento screen shown after items complete in Preset1/2. Supports rich content and bento grid layouts.",
+      "properties": {
+        "title": {
+          "type": "string",
+          "description": "Main heading"
+        },
+        "subtitle": {
+          "type": "string",
+          "description": "Smaller text below title"
+        },
+        "heroImage": {
+          "type": "string",
+          "description": "Path, URL, or 'sf=symbolname'"
+        },
+        "heroImageShape": {
+          "type": "string",
+          "enum": ["circle", "roundedSquare", "none"],
+          "default": "none",
+          "description": "Hero image shape"
+        },
+        "heroImageSize": {
+          "type": "number",
+          "default": 120,
+          "description": "Hero image size in points"
+        },
+        "content": {
+          "type": "array",
+          "description": "Rich content blocks",
+          "items": { "$ref": "#/definitions/GuidanceContent" }
+        },
+        "bentoLayout": {
+          "type": "string",
+          "enum": ["2x2", "3x2", "grid"],
+          "description": "Bento grid layout mode"
+        },
+        "bentoCells": {
+          "type": "array",
+          "description": "Bento cell definitions",
+          "items": { "$ref": "#/definitions/BentoCellConfig" }
+        },
+        "bentoColumns": {
+          "type": "integer",
+          "default": 2,
+          "description": "Grid columns"
+        },
+        "bentoRowHeight": {
+          "type": "number",
+          "default": 120,
+          "description": "Row height in points"
+        },
+        "bentoGap": {
+          "type": "number",
+          "default": 12,
+          "description": "Gap between cells in points"
+        },
+        "buttonText": {
+          "type": "string",
+          "default": "Close",
+          "description": "Final button label"
+        },
+        "autoTransition": {
+          "type": "boolean",
+          "default": true,
+          "description": "Auto-show when all items complete"
         }
       }
     }

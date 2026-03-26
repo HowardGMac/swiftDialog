@@ -25,10 +25,11 @@ struct GuidanceContentView: View {
     let onOverlayTap: (() -> Void)?  // Optional callback when a block with opensOverlay=true is tapped
     let accentColor: Color?              // Optional branded accent (arrow icons, highlight, explainer, button tint, radio selection)
     let contentAlignment: HorizontalAlignment  // Text block alignment (.leading default, .center for Preset5 intro)
+    let refreshToken: Int                // Changes on dynamic updates to force SwiftUI re-render
     @Environment(\.palette) private var palette
 
     // Initialize with required parameters for interactive form support
-    init(contentBlocks: [InspectConfig.GuidanceContent], scaleFactor: CGFloat, iconBasePath: String? = nil, inspectState: InspectState, itemId: String, onOverlayTap: (() -> Void)? = nil, accentColor: Color? = nil, contentAlignment: HorizontalAlignment = .leading) {
+    init(contentBlocks: [InspectConfig.GuidanceContent], scaleFactor: CGFloat, iconBasePath: String? = nil, inspectState: InspectState, itemId: String, onOverlayTap: (() -> Void)? = nil, accentColor: Color? = nil, contentAlignment: HorizontalAlignment = .leading, refreshToken: Int = 0) {
         self.contentBlocks = contentBlocks
         self.scaleFactor = scaleFactor
         self.iconBasePath = iconBasePath
@@ -37,11 +38,7 @@ struct GuidanceContentView: View {
         self.onOverlayTap = onOverlayTap
         self.accentColor = accentColor
         self.contentAlignment = contentAlignment
-
-        // Initialize form state for this item asynchronously to avoid publishing during view updates
-        DispatchQueue.main.async {
-            inspectState.initializeGuidanceFormState(for: itemId)
-        }
+        self.refreshToken = refreshToken
     }
 
     /// Group comparison-table blocks by category for collapsible rendering
@@ -119,6 +116,9 @@ struct GuidanceContentView: View {
                     }
                 }
             }
+        }
+        .onAppear {
+            inspectState.initializeGuidanceFormState(for: self.itemId)
         }
     }
 
@@ -976,12 +976,13 @@ struct GuidanceContentView: View {
                 StatusBadgeView(
                     label: label,
                     state: state,
+                    actual: block.actual,
                     icon: block.icon,
                     autoColor: autoColor,
                     customColor: customColor,
                     scaleFactor: scaleFactor
                 )
-                .id("status-badge-\(label)-\(state)")
+                .id("status-badge-\(label)-\(state)-\(block.actual ?? "")")
             } else if appvars.debugMode {
                 Text("status-badge requires 'label' and 'state' properties")
                     .font(.system(size: 11 * scaleFactor))

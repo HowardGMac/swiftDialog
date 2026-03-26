@@ -724,6 +724,10 @@ func handleButtonAction(block: InspectConfig.GuidanceContent, itemId: String, in
         // Write to interaction log for script monitoring
         inspectState.writeToInteractionLog("button:\(itemId):\(block.content ?? "button"):custom")
         writeLog("Button: Custom action triggered for '\(block.content ?? "button")'", logLevel: .info)
+        // Post DistributedNotification for external tools (ignitecli, etc.)
+        DialogNotifications.postButtonClick(
+            stepId: itemId, label: block.content ?? "button", action: "custom"
+        )
 
     case "request":
         // Script callback pattern - Dialog writes request, script handles execution
@@ -1127,23 +1131,50 @@ func resolveReadinessFilePath(config: InspectConfig?, triggerFilePath: String) -
 
 /// Write a readiness signal JSON file so external launchers can detect Dialog is ready.
 /// Call after monitoring/command file setup is complete.
-func writeReadinessFile(config: InspectConfig?, triggerFilePath: String) {
+func writeReadinessFile(config: InspectConfig?, triggerFilePath: String,
+                        preset: String? = nil, itemCount: Int? = nil,
+                        itemIDs: [String]? = nil) {
     let path = resolveReadinessFilePath(config: config, triggerFilePath: triggerFilePath)
-    let json: [String: Any] = [
+    var json: [String: Any] = [
         "pid": ProcessInfo.processInfo.processIdentifier,
         "triggerFile": triggerFilePath,
-        "timestamp": ISO8601DateFormatter().string(from: Date())
+        "timestamp": ISO8601DateFormatter().string(from: Date()),
+        "ackChannel": "com.swiftdialog.ack"
     ]
+    if let preset { json["preset"] = preset }
+    if let itemCount { json["itemCount"] = itemCount }
+    if let itemIDs { json["items"] = Array(itemIDs.prefix(50)) }
+
     if let data = try? JSONSerialization.data(withJSONObject: json, options: .prettyPrinted) {
         FileManager.default.createFile(atPath: (path as NSString).expandingTildeInPath, contents: data)
         print("[SWIFTDIALOG] readiness_file: \(path)")
         writeLog("IPC: Readiness file written to \(path)", logLevel: .info)
+
+        // Post DistributedNotification so ignitecli wait-ready returns instantly
+        var eventInfo: [String: String] = ["triggerFile": triggerFilePath]
+        if let preset { eventInfo["preset"] = preset }
+        if let itemCount { eventInfo["itemCount"] = String(itemCount) }
+        if let itemIDs { eventInfo["items"] = itemIDs.prefix(50).joined(separator: ",") }
+        eventInfo["ackChannel"] = "com.swiftdialog.ack"
+        DialogNotifications.postEvent("ready", userInfo: eventInfo)
     }
 }
 
-/// Delete the readiness file on exit.
-func cleanupReadinessFile(config: InspectConfig?, triggerFilePath: String) {
+/// Delete the readiness file on exit and post an exit event with result summary.
+func cleanupReadinessFile(config: InspectConfig?, triggerFilePath: String,
+                          exitCode: Int? = nil, completedCount: Int? = nil,
+                          failedCount: Int? = nil, totalSteps: Int? = nil) {
     let path = resolveReadinessFilePath(config: config, triggerFilePath: triggerFilePath)
+
+    // Post DistributedNotification so ignitecli wait-exit returns instantly
+    var eventInfo: [String: String] = ["triggerFile": triggerFilePath]
+    if let exitCode { eventInfo["exitCode"] = String(exitCode) }
+    if let completedCount { eventInfo["completedCount"] = String(completedCount) }
+    if let failedCount { eventInfo["failedCount"] = String(failedCount) }
+    if let totalSteps { eventInfo["totalSteps"] = String(totalSteps) }
+    if let resultFile = config?.resultFile { eventInfo["resultFile"] = resultFile }
+    DialogNotifications.postEvent("exit", userInfo: eventInfo)
+
     try? FileManager.default.removeItem(atPath: (path as NSString).expandingTildeInPath)
     writeLog("IPC: Readiness file cleaned up at \(path)", logLevel: .debug)
 }
@@ -1223,6 +1254,81 @@ func writeResultFile(
     }
 }
 
+// MARK: - Unified Label Resolution
+
+/// Resolve a label by key using the unified labels system.
+/// Priority: labels.translations[lang] → labels[key] → uiLabels/complianceLabels/pickerLabels → fallback
+func resolveLabel(_ key: String, config: InspectConfig?, language: String? = nil, fallback: String? = nil) -> String? {
+    // 1. Unified labels (with optional translation)
+    if let resolved = config?.labels?.resolve(key, language: language) {
+        return resolved
+    }
+
+    // 2. Legacy label structs (mirror lookup by key name)
+    if let ui = config?.uiLabels {
+        switch key {
+        case "completedStatus": return ui.completedStatus
+        case "downloadingStatus": return ui.downloadingStatus
+        case "pendingStatus": return ui.pendingStatus
+        case "failedStatus": return ui.failedStatus
+        case "progressFormat": return ui.progressFormat
+        case "stepCounterFormat": return ui.stepCounterFormat
+        case "completionMessage": return ui.completionMessage
+        case "completionSubtitle": return ui.completionSubtitle
+        case "sectionHeaderCompleted": return ui.sectionHeaderCompleted
+        case "sectionHeaderPending": return ui.sectionHeaderPending
+        case "sectionHeaderFailed": return ui.sectionHeaderFailed
+        case "statusConditionMet": return ui.statusConditionMet
+        case "statusConditionNotMet": return ui.statusConditionNotMet
+        case "statusChecking": return ui.statusChecking
+        case "statusReadyToStart": return ui.statusReadyToStart
+        case "statusInProgress": return ui.statusInProgress
+        case "welcomeTitle": return ui.welcomeTitle
+        case "welcomeBadge": return ui.welcomeBadge
+        case "welcomeParagraph1": return ui.welcomeParagraph1
+        case "welcomeParagraph2": return ui.welcomeParagraph2
+        case "guideInformationLabel": return ui.guideInformationLabel
+        case "sectionsLabel": return ui.sectionsLabel
+        case "keyPointsLabel": return ui.keyPointsLabel
+        case "getStartedTitle": return ui.getStartedTitle
+        case "getStartedSubtitle": return ui.getStartedSubtitle
+        case "imageNotAvailable": return ui.imageNotAvailable
+        default: break
+        }
+    }
+
+    if let comp = config?.complianceLabels {
+        switch key {
+        case "complianceStatus": return comp.complianceStatus
+        case "recommendedActions": return comp.recommendedActions
+        case "securityDetails": return comp.securityDetails
+        case "lastCheck": return comp.lastCheck
+        case "passed": return comp.passed
+        case "failed": return comp.failed
+        case "checksPassed": return comp.checksPassed
+        default: break
+        }
+    }
+
+    if let picker = config?.pickerLabels {
+        switch key {
+        case "selectButtonText": return picker.selectButtonText
+        case "selectedButtonText": return picker.selectedButtonText
+        case "deselectButtonText": return picker.deselectButtonText
+        case "continueButton": return picker.continueButton
+        case "finishButton": return picker.finishButton
+        case "backButton": return picker.backButton
+        case "pageCounterFormat": return picker.pageCounterFormat
+        case "selectionPrompt": return picker.selectionPrompt
+        case "selectionRequired": return picker.selectionRequired
+        case "multiSelectHint": return picker.multiSelectHint
+        default: break
+        }
+    }
+
+    return fallback
+}
+
 // MARK: - Shared Deferral System
 
 /// Perform a user-initiated deferral: write result file, print to stdout, exit.
@@ -1260,6 +1366,14 @@ func performDeferral(duration: String, config: InspectConfig?) {
 
     // Stdout for backward-compatible script parsing
     print("defer:\(seconds)")
+
+    // Post DistributedNotification so ignitecli gets instant deferral feedback
+    DialogNotifications.postEvent("defer", userInfo: [
+        "duration": duration,
+        "seconds": String(seconds),
+        "exitCode": String(exitCode),
+        "resultFile": resultPath ?? ""
+    ])
 
     exit(Int32(exitCode))
 }

@@ -15,6 +15,7 @@ import Combine
 /// Observable state manager for Inspect preset dynamic content updates
 /// Replaces problematic @State nested dictionaries with proper @Published properties
 /// Used across multiple presets (Preset5, Preset6, etc.)
+@MainActor
 class InspectDynamicState: ObservableObject {
 
     // MARK: - Published State (Triggers SwiftUI Updates)
@@ -53,7 +54,12 @@ class InspectDynamicState: ObservableObject {
         willSet {
             writeLog("MVVM: dynamicGuidanceProperties willSet (thread: \(Thread.isMainThread ? "MAIN" : "BG"))", logLevel: .debug)
         }
+        didSet { updateGeneration += 1 }
     }
+
+    /// Monotonic counter incremented on every dynamic property change.
+    /// Used as SwiftUI .id() to force re-render (hashValue is unreliable for dictionaries).
+    @Published var updateGeneration: Int = 0
 
     /// Status icons per list item (index → "iconName-color")
     @Published var itemStatusIcons: [Int: String] = [:] {
@@ -140,6 +146,24 @@ class InspectDynamicState: ObservableObject {
         dynamicGuidanceProperties[stepId] = stepDict
 
         writeLog("InspectDynamicState: Batch updated \(properties.count) properties for '\(stepId)'[\(blockIndex)]", logLevel: .info)
+    }
+
+    /// Batch update multiple blocks in a single @Published fire.
+    /// All values appear in one SwiftUI render frame — no per-property flicker.
+    func updateGuidancePropertiesBatch(stepId: String, blocks: [Int: [String: String]]) {
+        var stepDict = dynamicGuidanceProperties[stepId] ?? [:]
+
+        for (blockIndex, properties) in blocks {
+            var blockDict = stepDict[blockIndex] ?? [:]
+            blockDict.merge(properties) { _, new in new }
+            stepDict[blockIndex] = blockDict
+        }
+
+        // Single @Published fire for all blocks
+        dynamicGuidanceProperties[stepId] = stepDict
+
+        let totalProps = blocks.values.reduce(0) { $0 + $1.count }
+        writeLog("InspectDynamicState: Batch updated \(blocks.count) blocks (\(totalProps) properties) for '\(stepId)'", logLevel: .info)
     }
 
     /// Update list item status icon

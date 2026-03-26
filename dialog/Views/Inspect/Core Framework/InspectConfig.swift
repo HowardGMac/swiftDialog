@@ -10,6 +10,14 @@
 import Foundation
 import SwiftUI
 
+/// Dynamic coding key for ad-hoc JSON key lookups (e.g., "title" fallback for "displayName")
+private struct RawCodingKey: CodingKey {
+    var stringValue: String
+    var intValue: Int?
+    init(stringValue: String) { self.stringValue = stringValue; self.intValue = nil }
+    init?(intValue: Int) { self.stringValue = "\(intValue)"; self.intValue = intValue }
+}
+
 // MARK: - Unified Status Enum
 
 /// Unified status enum for all Inspect mode items
@@ -103,14 +111,16 @@ struct InspectConfig: Codable {
     let hideSystemDetails: Bool?
     let observeOnly: Bool?                  // Global observe-only mode - disables all user interactions (default: false/interactive)
     let autoAdvanceOnComplete: Bool?        // Preset6: Auto-navigate to next step after marking complete (default: true, set false for two-click flow)
+    let autoAdvanceDelay: Double?           // Seconds to wait before auto-advancing (default: 0.5). Set higher (e.g., 2.0) to let users see results before moving on.
     let colorThresholds: ColorThresholds?   // WIP: Configurable color thresholds for visualizations
     let plistSources: [PlistSourceConfig]?  // Array of plist configurations to monitor - used in compliance dashboards like preset5
     let categoryHelp: [CategoryHelp]?       // Optional help popovers for categories - used in compliance dashboards like preset5
-    let uiLabels: UILabels?                 // Optional UI text customization (cross-preset status/progress/completion text)
-    let complianceLabels: ComplianceLabels? // Optional compliance-specific text customization (Preset5)
+    let labels: UnifiedLabels?              // Unified labels: single flat key-value for all UI text + optional inline translations
+    let uiLabels: UILabels?                 // Legacy: UI text customization (use `labels` instead for new configs)
+    let complianceLabels: ComplianceLabels? // Legacy: compliance-specific text (use `labels` instead)
     let pickerConfig: PickerConfig?         // Optional picker mode configuration (legacy presets, etc.)
     let instructionBanner: InstructionBannerConfig? // Optional instruction banner (all presets)
-    let pickerLabels: PickerLabels?         // Optional picker mode text customization (legacy presets, etc.)
+    let pickerLabels: PickerLabels?         // Legacy: picker mode text (use `labels` instead)
 
     let iconBasePath: String?                // Icon base path for relative loading icon paths
     let overlayicon: String?                  // Overlay icon for brand identity badges
@@ -130,6 +140,7 @@ struct InspectConfig: Codable {
     let triggerFile: String?                // Custom trigger file path (overrides dev/prod defaults)
     let skipPortal: Bool?                   // Skip portal phase entirely (Preset5) - go directly from intro to outro
     let debugMode: Bool?                    // Debug/testing mode - ignore completion flags, always start from step 1 (preserves form values)
+    let resumable: Bool?                    // Opt-in state persistence: when true, saves progress and resumes on relaunch (default: false — always fresh start)
     let dateStyle: String?                  // Date display format: "relative" | "short" | "medium" | "long" | "iso8601" (default: "medium")
 
     // MARK: - IPC (ignitecli Integration)
@@ -740,7 +751,15 @@ struct InspectConfig: Codable {
 
             // Required fields
             id = try container.decode(String.self, forKey: .id)
-            displayName = try container.decode(String.self, forKey: .displayName)
+            // displayName falls back to "title" (common alias), then to "id"
+            // Avoids cryptic "missing displayName" errors for callers used to "title"
+            if let dn = try container.decodeIfPresent(String.self, forKey: .displayName) {
+                displayName = dn
+            } else {
+                // Try "title" as an ad-hoc key (not in CodingKeys to avoid Encodable issues)
+                let rawContainer = try decoder.container(keyedBy: RawCodingKey.self)
+                displayName = (try? rawContainer.decodeIfPresent(String.self, forKey: RawCodingKey(stringValue: "title"))) ?? id
+            }
 
             // Fields with sensible defaults (no longer required in JSON)
             guiIndex = try container.decodeIfPresent(Int.self, forKey: .guiIndex) ?? 0
@@ -936,7 +955,7 @@ struct InspectConfig: Codable {
 
         // Status monitoring fields (for type="status-badge" | "comparison-table" | "phase-tracker" | "progress-bar")
         var label: String?              // Display label for status components
-        let state: String?              // Current state (e.g., "enabled", "disabled", "active", "enrolled")
+        var state: String?              // Current state (e.g., "enabled", "disabled", "active", "enrolled")
         let icon: String?               // SF Symbol icon name for status-badge
         let autoColor: Bool?            // Auto-assign colors based on state (default: true)
         let expected: String?           // Expected value for comparison-table
@@ -1064,6 +1083,15 @@ struct InspectConfig: Codable {
             // Interaction - opens detail overlay when tapped
             let detailOverlay: DetailOverlayConfig?
         }
+
+        /// Resolve a block identifier to a numeric index.
+        /// Accepts either a numeric string ("2") or a block ID ("auth_check").
+        static func resolveBlockIndex(_ identifier: String, in content: [GuidanceContent]) -> Int? {
+            if let index = Int(identifier), index >= 0, index < content.count {
+                return index
+            }
+            return content.firstIndex { $0.id == identifier }
+        }
     }
 
     struct PlistSourceConfig: Codable {
@@ -1102,6 +1130,64 @@ struct InspectConfig: Codable {
         let icon: String?                   // Optional custom icon for the category
         let statusLabel: String?            // Optional custom label for "Compliance Status"
         let recommendationsLabel: String?   // Optional custom label for "Recommended Actions"
+    }
+
+    // MARK: - Unified Labels (single flat config for all UI text)
+
+    /// Unified label system: one flat key-value map for all Dialog UI text.
+    /// Merges UILabels + ComplianceLabels + PickerLabels into a single config.
+    /// Supports inline translations via `translations` dict.
+    /// Resolution: translations[lang][key] → labels[key] → legacy structs → hardcoded default
+    struct UnifiedLabels: Codable {
+        // All labels stored as a flat dictionary for maximum flexibility
+        private let values: [String: String]
+        let translations: [String: [String: String]]?
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: DynamicCodingKey.self)
+            var vals: [String: String] = [:]
+            var trans: [String: [String: String]]?
+
+            for key in container.allKeys {
+                if key.stringValue == "translations" {
+                    trans = try container.decodeIfPresent([String: [String: String]].self, forKey: key)
+                } else {
+                    if let stringValue = try? container.decode(String.self, forKey: key) {
+                        vals[key.stringValue] = stringValue
+                    }
+                }
+            }
+            self.values = vals
+            self.translations = trans
+        }
+
+        func encode(to encoder: Encoder) throws {
+            var container = encoder.container(keyedBy: DynamicCodingKey.self)
+            for (key, value) in values {
+                try container.encode(value, forKey: DynamicCodingKey(stringValue: key))
+            }
+            if let trans = translations {
+                try container.encode(trans, forKey: DynamicCodingKey(stringValue: "translations"))
+            }
+        }
+
+        /// Resolve a label by key, with optional language for translations.
+        func resolve(_ key: String, language: String? = nil) -> String? {
+            // 1. Check translations for the requested language
+            if let lang = language, let translated = translations?[lang]?[key] {
+                return translated
+            }
+            // 2. Check base labels
+            return values[key]
+        }
+
+        /// Dynamic coding key for flat dictionary encoding/decoding
+        private struct DynamicCodingKey: CodingKey {
+            var stringValue: String
+            var intValue: Int?
+            init(stringValue: String) { self.stringValue = stringValue; self.intValue = nil }
+            init?(intValue: Int) { self.stringValue = "\(intValue)"; self.intValue = intValue }
+        }
     }
 
     /// We try here a cross-preset approach fro UI text customization labels (currently > Presets 1-9)
@@ -1763,9 +1849,11 @@ struct InspectConfig: Codable {
         hideSystemDetails = try container.decodeIfPresent(Bool.self, forKey: .hideSystemDetails)
         observeOnly = try container.decodeIfPresent(Bool.self, forKey: .observeOnly)
         autoAdvanceOnComplete = try container.decodeIfPresent(Bool.self, forKey: .autoAdvanceOnComplete)
+        autoAdvanceDelay = try container.decodeIfPresent(Double.self, forKey: .autoAdvanceDelay)
         colorThresholds = try container.decodeIfPresent(ColorThresholds.self, forKey: .colorThresholds)
         plistSources = try container.decodeIfPresent([PlistSourceConfig].self, forKey: .plistSources)
         categoryHelp = try container.decodeIfPresent([CategoryHelp].self, forKey: .categoryHelp)
+        labels = try container.decodeIfPresent(UnifiedLabels.self, forKey: .labels)
         uiLabels = try container.decodeIfPresent(UILabels.self, forKey: .uiLabels)
         complianceLabels = try container.decodeIfPresent(ComplianceLabels.self, forKey: .complianceLabels)
         pickerConfig = try container.decodeIfPresent(PickerConfig.self, forKey: .pickerConfig)
@@ -1796,6 +1884,7 @@ struct InspectConfig: Codable {
         triggerFile = try container.decodeIfPresent(String.self, forKey: .triggerFile)
         skipPortal = try container.decodeIfPresent(Bool.self, forKey: .skipPortal)
         debugMode = try container.decodeIfPresent(Bool.self, forKey: .debugMode)
+        resumable = try container.decodeIfPresent(Bool.self, forKey: .resumable)
         dateStyle = try container.decodeIfPresent(String.self, forKey: .dateStyle)
 
         // IPC (ignitecli integration)
@@ -1867,7 +1956,7 @@ struct InspectConfig: Codable {
         // Backward compatibility: Field is decoded but ignored
         // Removal timeline: v3.0.0 (post Presets 5-9 public release)
         case buttonStyle
-        case autoEnableButton, autoEnableButtonText, hideSystemDetails, observeOnly, autoAdvanceOnComplete, colorThresholds, plistSources, categoryHelp, uiLabels, complianceLabels, pickerConfig, instructionBanner, pickerLabels, items
+        case autoEnableButton, autoEnableButtonText, hideSystemDetails, observeOnly, autoAdvanceOnComplete, autoAdvanceDelay, colorThresholds, plistSources, categoryHelp, labels, uiLabels, complianceLabels, pickerConfig, instructionBanner, pickerLabels, items
         // Intro/outro screens
         case introSteps
         // Preset6 specific properties
@@ -1879,7 +1968,7 @@ struct InspectConfig: Codable {
         // Logo overlay configuration
         case logoConfig
         // Detail overlay, help button, action pipe, trigger file, skip portal, and debug mode configuration
-        case detailOverlay, helpButton, actionPipe, triggerFile, skipPortal, debugMode, dateStyle
+        case detailOverlay, helpButton, actionPipe, triggerFile, skipPortal, debugMode, resumable, dateStyle
         // IPC (ignitecli integration)
         case readinessFile, resultFile, eventFile, deferralConfig
         // Log monitoring configuration

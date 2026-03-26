@@ -177,7 +177,7 @@ struct StarterTemplateService {
                     "stepType": "intro",
                     "title": "Welcome",
                     "subtitle": "Your starter Preset 5 workflow (example)",
-                    "heroImage": "SF=macbook.gen2",
+                    "heroImage": "computer",
                     "heroImageSize": 180,
                     "content": [
                         { "type": "text", "content": "This is a two-step starter. Edit config.json to add more steps, change layouts, or customise the content." },

@@ -516,7 +516,7 @@ class Config {
                     "stepType": "intro",
                     "title": "swiftDialog — Inspect Mode",
                     "subtitle": "A sample configuration to get you started.",
-                    "heroImage": "SF=macbook.gen2",
+                    "heroImage": "computer",
                     "heroImageSize": 180,
                     "content": [
                         {
