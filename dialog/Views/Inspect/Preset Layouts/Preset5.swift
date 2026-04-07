@@ -807,81 +807,27 @@ struct Preset5View: View {
 
         let valueOrContent = parts[2]
 
-        // Get or create state for this block index
-        if introStepMonitor.contentStates[blockIndex] == nil {
-            introStepMonitor.contentStates[blockIndex] = DynamicContentState()
-        }
-
-        guard let state = introStepMonitor.contentStates[blockIndex] else {
-            writeLog("Preset5: Failed to get content state for block \(blockIndex)", logLevel: .error)
-            return
+        // Resolve the step ID for dynamicState keying
+        let effectiveStepId: String
+        if stepId == "_" || stepId.isEmpty {
+            // Auto-resolve: find step containing this block by id
+            effectiveStepId = allSteps.first(where: { step in
+                step.content?.contains(where: { $0.id == blockIdentifier }) == true
+            })?.id ?? currentStep?.id ?? ""
+        } else {
+            effectiveStepId = allSteps.first(where: { $0.id == stepId })?.id ?? currentStep?.id ?? ""
         }
 
         // Check if this is a property=value format or plain content
         if let equalsIndex = valueOrContent.firstIndex(of: "=") {
             let property = String(valueOrContent[..<equalsIndex])
             let value = String(valueOrContent[valueOrContent.index(after: equalsIndex)...])
-
-            switch property {
-            case "label":
-                state.label = value
-                writeLog("Preset5: Updated guidance block \(blockIndex) label to '\(value)'", logLevel: .info)
-            case "state":
-                state.state = value
-                // Also update statusBadgeOverrides keyed by block index AND original label for introStatusBadgeView
-                statusBadgeOverrides["block_\(blockIndex)"] = value
-                if let step = currentStep, let content = step.content, blockIndex < content.count {
-                    let block = content[blockIndex]
-                    let badgeKey = block.id ?? block.content ?? block.label ?? ""
-                    if !badgeKey.isEmpty {
-                        statusBadgeOverrides[badgeKey] = value
-                    }
-                }
-                writeLog("Preset5: Updated guidance block \(blockIndex) state to '\(value)'", logLevel: .info)
-            case "actual":
-                state.actual = value
-                writeLog("Preset5: Updated guidance block \(blockIndex) actual to '\(value)'", logLevel: .info)
-            case "progress":
-                if let progressValue = Double(value) {
-                    // Auto-detect scale: values > 1.0 are treated as 0-100, otherwise 0.0-1.0
-                    let normalized = progressValue > 1.0 ? min(1.0, max(0.0, progressValue / 100.0)) : min(1.0, max(0.0, progressValue))
-                    state.progress = normalized
-                    writeLog("Preset5: Updated guidance block \(blockIndex) progress to \(normalized) (raw: \(value))", logLevel: .info)
-                }
-            case "currentPhase":
-                if let phaseValue = Int(value) {
-                    state.currentPhase = phaseValue
-                    writeLog("Preset5: Updated guidance block \(blockIndex) currentPhase to \(phaseValue)", logLevel: .info)
-                }
-            case "content":
-                state.content = value
-                writeLog("Preset5: Updated guidance block \(blockIndex) content to '\(value)'", logLevel: .info)
-            case "visible":
-                state.visible = value.lowercased() == "true" || value == "1"
-                writeLog("Preset5: Updated guidance block \(blockIndex) visible to \(state.visible)", logLevel: .info)
-            case "passed":
-                if let passedValue = Int(value) {
-                    state.passed = passedValue
-                    writeLog("Preset5: Updated guidance block \(blockIndex) passed to \(passedValue)", logLevel: .info)
-                }
-            case "total":
-                if let totalValue = Int(value) {
-                    state.total = totalValue
-                    writeLog("Preset5: Updated guidance block \(blockIndex) total to \(totalValue)", logLevel: .info)
-                }
-            default:
-                writeLog("Preset5: Unknown property in update_guidance: \(property)", logLevel: .debug)
-            }
+            dynamicState.updateGuidanceProperty(stepId: effectiveStepId, blockIndex: blockIndex, property: property, value: value)
+            writeLog("Preset5: Updated guidance block \(blockIndex) \(property) to '\(value)' via dynamicState", logLevel: .info)
         } else {
-            // Plain content update (no equals sign) - treat as label/content update
-            state.content = valueOrContent
-            writeLog("Preset5: Updated guidance block \(blockIndex) content to '\(valueOrContent)'", logLevel: .info)
-        }
-
-        // Trigger UI update
-        DispatchQueue.main.async {
-            self.introStepMonitor.objectWillChange.send()
-            self.dynamicContentUpdateCounter += 1
+            // Plain content update (no equals sign) - treat as content update
+            dynamicState.updateGuidanceProperty(stepId: effectiveStepId, blockIndex: blockIndex, property: "content", value: valueOrContent)
+            writeLog("Preset5: Updated guidance block \(blockIndex) content to '\(valueOrContent)' via dynamicState", logLevel: .info)
         }
     }
 
@@ -954,10 +900,21 @@ struct Preset5View: View {
         }
 
         if updatedCount > 0 {
-            DispatchQueue.main.async {
-                self.introStepMonitor.objectWillChange.send()
-                self.dynamicContentUpdateCounter += 1
+            // Also update statusBadgeOverrides so introStatusBadgeView picks up state changes
+            for (blockKey, properties) in payload.updates {
+                if let blockIndex = InspectConfig.GuidanceContent.resolveBlockIndex(blockKey, in: content) {
+                    if let stateValue = properties["state"] {
+                        statusBadgeOverrides["block_\(blockIndex)"] = stateValue
+                        let block = content[blockIndex]
+                        let badgeKey = block.id ?? block.content ?? block.label ?? ""
+                        if !badgeKey.isEmpty {
+                            statusBadgeOverrides[badgeKey] = stateValue
+                        }
+                    }
+                }
             }
+            introStepMonitor.objectWillChange.send()
+            dynamicContentUpdateCounter += 1
             writeLog("Preset5: batch_update: applied \(updatedCount) blocks to '\(step.id)'", logLevel: .info)
         }
     }
@@ -3998,6 +3955,7 @@ struct Preset5View: View {
         let blockId = block.id ?? baseLabel  // Use id if available, otherwise label
         // Check for override by id, by block index, by label, then dynamic state, then config state
         let effectiveState = dynamicState?.state ?? statusBadgeOverrides[blockId] ?? statusBadgeOverrides["block_\(blockIndex)"] ?? statusBadgeOverrides[baseLabel] ?? block.state ?? "pending"
+        let effectiveActual = dynamicState?.actual ?? block.actual
         let autoColor = block.autoColor ?? false
 
         let (autoIcon, color) = statusBadgeStyle(for: effectiveState, autoColor: autoColor)
@@ -4032,20 +3990,32 @@ struct Preset5View: View {
 
                 Spacer()
 
-                Text(statusBadgeText(for: effectiveState))
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(color)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 3)
-                    .background(color.opacity(0.1))
-                    .clipShape(Capsule())
+                if let actual = effectiveActual, !actual.isEmpty {
+                    // Show actual value with subtle styling — state controls icon/border only
+                    Text(actual)
+                        .font(.system(size: 12, weight: .regular))
+                        .foregroundStyle(.primary)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 3)
+                        .background(color.opacity(0.08))
+                        .clipShape(Capsule())
+                } else {
+                    // No actual value — show state keyword as colored badge
+                    Text(statusBadgeText(for: effectiveState))
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(color)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 3)
+                        .background(color.opacity(0.1))
+                        .clipShape(Capsule())
+                }
             }
             .padding(.vertical, 8)
             .padding(.horizontal, 12)
             .background(Color(NSColor.controlBackgroundColor).opacity(0.4))
             .clipShape(RoundedRectangle(cornerRadius: 8))
         }
-        .id("status-badge-\(blockIndex)-\(effectiveState)-\(label)")
+        .id("status-badge-\(blockIndex)-\(effectiveState)-\(label)-\(effectiveActual ?? "")")
     }
 
     /// Get icon and color for status badge state
@@ -4057,8 +4027,12 @@ struct Preset5View: View {
             return ("xmark.circle.fill", palette.error)
         case "downloading", "processing", "running":
             return ("arrow.down.circle.fill", palette.info)
-        case "warning", "pending":
+        case "warning":
             return ("exclamationmark.triangle.fill", palette.warning)
+        case "pending":
+            return ("clock.fill", palette.warning)
+        case "info":
+            return ("info.circle.fill", .secondary)
         default:
             return ("circle", .secondary)
         }
