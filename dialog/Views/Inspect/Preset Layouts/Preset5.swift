@@ -5267,7 +5267,7 @@ struct Preset5View: View {
         VStack {
             Spacer(minLength: 0)
             if let path = mediaPath {
-                let url: URL = path.hasPrefix("http") ? URL(string: path)! : URL(fileURLWithPath: path)
+                let url: URL = path.hasPrefix("http") ? (URL(string: path) ?? URL(fileURLWithPath: path)) : URL(fileURLWithPath: path)
                 let mediaType = IntroMediaType.detect(from: url)
 
                 switch mediaType {
